@@ -16,7 +16,11 @@ B = "${WORKDIR}/build"
 QNX_IFS_NAME = "qnx-host"
 QNX_IFS_TEMPLATE = "${S}/qnx-host.build.in"
 
-QNX_IFS_INSTALL = "rpi-gpio shm-chunker frame-router motor-controller qnx-host-conf \
+# What the project's own rpi5-hypervisor.build stages: frame_router,
+# giga_spi_8adc, rpi-gpio and the GPU stack. shm_sender is deliberately absent
+# -- the project stages it in neither the host nor a guest, and it was only ever
+# here because it was the first application ported.
+QNX_IFS_INSTALL = "rpi-gpio frame-router motor-controller qnx-host-conf \
                    libepoxy virglrenderer vdev-virtio-gpu"
 
 # ---------------------------------------------------------------------------
