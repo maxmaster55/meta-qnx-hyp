@@ -21,6 +21,12 @@
 [type=dir] /scripts
 [type=dir] /guests
 
+################################################################################
+## Contributed by other layers -- guest images and their configuration land
+## here. Empty unless something sets QNX_DISK_DATA_EXTRA.
+################################################################################
+@QNX_DISK_DATA_EXTRA@
+
 # Mounted by the startup script once storage is up.
 /scripts/board_startup.sh = {
 #!/bin/sh
