@@ -4,9 +4,21 @@ configuration for the hypervisor host, along with the scripts that start them. \
 These are configuration rather than code, so they are staged verbatim."
 LICENSE = "CLOSED"
 
-inherit qnx-sdp qnx-project-src
+inherit qnx-sdp qnx-src
 
-QNX_APP_SUBDIR = "conf"
+# NO STANDALONE REPOSITORY YET.
+#
+# This application lives inside the QNX hypervisor monorepo, so there is nothing
+# of its own to clone; it is built from a local checkout instead. Split it into
+# its own repository and this becomes one line:
+#
+#     QNX_SRC_REPO = "git://github.com/you/qnx-host-conf.git;protocol=https;branch=main"
+#
+# ...and QNX_SRC_LOCAL goes away. Until then QNX_PROJECT_SRC in local.conf says
+# where the checkout is, and this recipe has no sstate (a working tree has no
+# revision to hash) so it rebuilds every time.
+QNX_SRC_LOCAL = "${QNX_PROJECT_SRC}"
+QNX_SRC_SUBDIR = "conf"
 
 do_configure[noexec] = "1"
 do_compile[noexec] = "1"

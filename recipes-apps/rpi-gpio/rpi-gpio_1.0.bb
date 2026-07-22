@@ -5,12 +5,25 @@ contract: it installs a binary for the image AND a public header for other \
 recipes to compile against."
 LICENSE = "CLOSED"
 
-inherit qnx-cmake qnx-project-src
+inherit qnx-cmake qnx-src
 
-QNX_APP_SUBDIR = "src/rpi-gpio"
+# NO STANDALONE REPOSITORY YET.
+#
+# This application lives inside the QNX hypervisor monorepo, so there is nothing
+# of its own to clone; it is built from a local checkout instead. Split it into
+# its own repository and this becomes one line:
+#
+#     QNX_SRC_REPO = "git://github.com/you/rpi-gpio.git;protocol=https;branch=main"
+#
+# ...and QNX_SRC_LOCAL goes away. Until then QNX_PROJECT_SRC in local.conf says
+# where the checkout is, and this recipe has no sstate (a working tree has no
+# revision to hash) so it rebuilds every time.
+QNX_SRC_LOCAL = "${QNX_PROJECT_SRC}"
+QNX_SRC_SUBDIR = "src/rpi-gpio"
 
-# Out-of-tree build -- cmake does not need to write into the working tree.
+# cmake builds out of tree, so nothing is written into the checkout.
 EXTERNALSRC_BUILD = "${WORKDIR}/build"
+
 
 # The project's own install() rules already follow the QNX convention:
 #   install(TARGETS rpi_gpio DESTINATION ${CMAKE_SYSTEM_PROCESSOR}/sbin)

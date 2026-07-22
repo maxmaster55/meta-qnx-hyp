@@ -4,9 +4,21 @@ fb_guest/fb_test (run inside a guest). The guest side is built here too so a gue
 image recipe can install the same recipe."
 LICENSE = "CLOSED"
 
-inherit qnx-sdp qnx-project-src
+inherit qnx-sdp qnx-src
 
-QNX_APP_SUBDIR = "src/frame_router"
+# NO STANDALONE REPOSITORY YET.
+#
+# This application lives inside the QNX hypervisor monorepo, so there is nothing
+# of its own to clone; it is built from a local checkout instead. Split it into
+# its own repository and this becomes one line:
+#
+#     QNX_SRC_REPO = "git://github.com/you/frame_router.git;protocol=https;branch=main"
+#
+# ...and QNX_SRC_LOCAL goes away. Until then QNX_PROJECT_SRC in local.conf says
+# where the checkout is, and this recipe has no sstate (a working tree has no
+# revision to hash) so it rebuilds every time.
+QNX_SRC_LOCAL = "${QNX_PROJECT_SRC}"
+QNX_SRC_SUBDIR = "src/frame_router"
 
 # Its Makefile hardcodes QCC = qcc and builds the -V variant into each rule, so
 # only the variant needs steering. CFLAGS is left alone deliberately: it uses

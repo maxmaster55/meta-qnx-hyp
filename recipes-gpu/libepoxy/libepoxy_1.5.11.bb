@@ -4,14 +4,13 @@ QNX fork, whose Makefile wraps meson with the options that port needs; this \
 recipe supplies the cross file and the synthesised pkg-config metadata the SDP \
 does not ship."
 LICENSE = "MIT"
+LIC_FILES_CHKSUM = "file://COPYING;md5=58ef4c80d401e07bd9ee8b6b58cf464b"
 
-inherit qnx-meson qnx-project-src
+inherit qnx-meson qnx-src
 
-QNX_APP_SUBDIR = "src/gpu/libepoxy"
-
-# Out of tree: meson refuses to configure into a dirty source directory, and the
-# fork's Makefile puts its build in build-qnx/ relative to the source anyway.
-EXTERNALSRC_BUILD = "${WORKDIR}/build"
+# Cloned from its own repository, tracking the branch head. Pin QNX_SRC_REV to a
+# commit for a reproducible build.
+QNX_SRC_REPO = "git://github.com/maxmaster55/QNX_libepoxy.git;protocol=https;branch=main"
 
 # The fork already knows which meson options its QNX port needs (-Degl=yes
 # -Dglx=no -Dx11=false), so drive its wrapper rather than re-deriving them.
@@ -33,4 +32,10 @@ do_install() {
 	ln -sf libepoxy.so.0     ${D}${QNX_STAGE_LIBDIR}/libepoxy.so
 
 	install -m 0644 ${S}/include/epoxy/*.h ${D}${QNX_STAGE_INCLUDEDIR}/epoxy/
+
+	# gl_generated.h and egl_generated.h are produced by the build, not shipped
+	# in the source tree, and epoxy/gl.h includes them. Without these a consumer
+	# compiles until the first #include and then stops with "No such file".
+	install -m 0644 ${S}/build-qnx/include/epoxy/*_generated.h \
+		${D}${QNX_STAGE_INCLUDEDIR}/epoxy/
 }

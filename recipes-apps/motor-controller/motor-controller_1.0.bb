@@ -4,9 +4,21 @@ against rpi-gpio's public header, which is why this recipe needs nothing more \
 than a DEPENDS to find it -- the header arrives in the sysroot."
 LICENSE = "CLOSED"
 
-inherit qnx-sdp qnx-project-src
+inherit qnx-sdp qnx-src
 
-QNX_APP_SUBDIR = "src/giga_spi_8adc"
+# NO STANDALONE REPOSITORY YET.
+#
+# This application lives inside the QNX hypervisor monorepo, so there is nothing
+# of its own to clone; it is built from a local checkout instead. Split it into
+# its own repository and this becomes one line:
+#
+#     QNX_SRC_REPO = "git://github.com/you/giga_spi_8adc.git;protocol=https;branch=main"
+#
+# ...and QNX_SRC_LOCAL goes away. Until then QNX_PROJECT_SRC in local.conf says
+# where the checkout is, and this recipe has no sstate (a working tree has no
+# revision to hash) so it rebuilds every time.
+QNX_SRC_LOCAL = "${QNX_PROJECT_SRC}"
+QNX_SRC_SUBDIR = "src/giga_spi_8adc"
 
 # sys/rpi_gpio.h. The upstream Makefile also reaches for it with a relative
 # -I../rpi-gpio/resmgr/public, which happens to work when building the working
