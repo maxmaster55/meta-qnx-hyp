@@ -25,8 +25,15 @@ QNX_SRC_SUBDIR = "src/giga_spi_8adc"
 # tree in place; the DEPENDS is what makes it correct rather than lucky.
 DEPENDS = "rpi-gpio"
 
-# The Makefile assigns CC and bakes -V into its own CFLAGS, so steer CC only.
-EXTRA_OEMAKE = "CC='${CC}'"
+# The Makefile assigns CC and bakes -V into its own CFLAGS, so steer CC only --
+# overriding CFLAGS wholesale would drop its -V and -O flags.
+#
+# EXTRA_CFLAGS carries the one include path it cannot resolve itself:
+# rpi_gpio.c includes <sys/rpi_gpio.h>, which belongs to the rpi-gpio
+# repository. That used to be a hardcoded -I../rpi-gpio/resmgr/public, which
+# only worked while both lived in one source tree; now the header arrives in the
+# sysroot via DEPENDS and the path is passed in.
+EXTRA_OEMAKE = "CC='${CC}' EXTRA_CFLAGS='-I${RECIPE_SYSROOT}${QNX_STAGE_INCLUDEDIR}'"
 
 do_compile() {
 	oe_runmake -C ${S} all

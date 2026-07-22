@@ -7,19 +7,9 @@ LICENSE = "CLOSED"
 
 inherit qnx-cmake qnx-src
 
-# NO STANDALONE REPOSITORY YET.
-#
-# This application lives inside the QNX hypervisor monorepo, so there is nothing
-# of its own to clone; it is built from a local checkout instead. Split it into
-# its own repository and this becomes one line:
-#
-#     QNX_SRC_REPO = "git://github.com/you/rpi-gpio.git;protocol=https;branch=main"
-#
-# ...and QNX_SRC_LOCAL goes away. Until then QNX_PROJECT_SRC in local.conf says
-# where the checkout is, and this recipe has no sstate (a working tree has no
-# revision to hash) so it rebuilds every time.
-QNX_SRC_LOCAL = "${QNX_PROJECT_SRC}"
-QNX_SRC_SUBDIR = "src/rpi-gpio"
+# Its own repository, tracking the branch head. Pin QNX_SRC_REV to a commit for
+# a reproducible build, or set QNX_SRC_LOCAL to work on a checkout in place.
+QNX_SRC_REPO = "git://git@github.com/PM-Maestro-ITI-GP-Org/rpi-gpio.git;protocol=ssh;branch=main"
 
 # cmake builds out of tree, so nothing is written into the checkout.
 EXTERNALSRC_BUILD = "${WORKDIR}/build"
