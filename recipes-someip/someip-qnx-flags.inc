@@ -20,3 +20,8 @@ QNX_SOMEIP_DEFINES = "-D_QNX_SOURCE -DSA_RESTART=0x0040 \
 
 CFLAGS:append = " ${QNX_SOMEIP_DEFINES}"
 CXXFLAGS:append = " ${QNX_SOMEIP_DEFINES} -Wno-narrowing"
+
+# eventfd() is not in QNX's libc; the SDP ships it as a separate library. Without
+# this, everything compiles and the link fails with an undefined reference to
+# eventfd from libCommonAPI-SomeIP.
+LDFLAGS:append = " -leventfd"

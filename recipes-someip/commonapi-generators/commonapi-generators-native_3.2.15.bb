@@ -24,9 +24,6 @@ SRC_URI[someip.sha256sum] = "587123eaf7d4b95fab83fd6667076a71195f04364e066d53124
 
 inherit native
 
-# Eclipse RCP applications: a native launcher plus a JRE-backed runtime.
-# HOSTTOOLS carries java through bitbake's sanitized PATH.
-HOSTTOOLS_NONFATAL += "java"
 
 S = "${WORKDIR}"
 
@@ -55,4 +52,12 @@ do_install() {
 		${D}${bindir}/commonapi-core-generator
 	ln -sf ../share/commonapi-generators/someip/commonapi-someip-generator-linux-x86_64 \
 		${D}${bindir}/commonapi-someip-generator
+
+	# ...and under their full upstream names too. Application CMakeLists use
+	# find_program(commonapi-core-generator-linux-x86_64), so the short name
+	# alone would not be found.
+	ln -sf ../share/commonapi-generators/core/commonapi-core-generator-linux-x86_64 \
+		${D}${bindir}/commonapi-core-generator-linux-x86_64
+	ln -sf ../share/commonapi-generators/someip/commonapi-someip-generator-linux-x86_64 \
+		${D}${bindir}/commonapi-someip-generator-linux-x86_64
 }
