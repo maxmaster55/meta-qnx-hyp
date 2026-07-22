@@ -1,0 +1,54 @@
+Assume the multicast route is ready on QNX
+
+vsomeip learns that the multicast route is up from a netlink connector.
+QNX has none, so sd_route_set_ was never set, is_external_routing_ready()
+never returned true, and service discovery never completed -- services
+stayed pending forever.
+
+Windows is in the same position and upstream already special-cases it, so
+this extends that path to QNX.
+
+Taken from the commonapi-qnx port in the QNX hypervisor project, and
+regenerated as a well-formed diff: the original relied on `git apply
+--recount` to fix up its hunk counts, which quilt does not do.
+
+Upstream-Status: Inappropriate [QNX-specific platform support]
+diff --git a/implementation/routing/src/routing_manager_impl.cpp b/implementation/routing/src/routing_manager_impl.cpp
+index e42ce10f..1759c7a5 100644
+--- a/implementation/routing/src/routing_manager_impl.cpp
++++ b/implementation/routing/src/routing_manager_impl.cpp
+@@ -4020,6 +4020,10 @@ void routing_manager_impl::on_net_interface_or_route_state_changed(
+ void routing_manager_impl::start_ip_routing() {
+ #if defined(_WIN32) || defined(__QNX__)
+     if_state_running_ = true;
++    // On QNX/Windows there is no netlink connector to detect when the
++    // multicast route becomes available. Assume it is ready so that
++    // is_external_routing_ready() can return true when SD is enabled.
++    sd_route_set_ = true;
+ #endif
+ 
+     if (routing_ready_handler_) {
+@@ -4036,6 +4040,23 @@ void routing_manager_impl::start_ip_routing() {
+ 
+     routing_running_ = true;
+     VSOMEIP_INFO << VSOMEIP_ROUTING_READY_MESSAGE;
++
++#if defined(_WIN32) || defined(__QNX__)
++    // On QNX/Windows there is no netlink connector to call
++    // on_net_interface_or_route_state_changed() which would normally
++    // process pending service offers. Call init_pending_services() here
++    // so that services offered before routing was ready get their
++    // server endpoints created.
++    {
++        std::scoped_lock its_lock(on_state_change_mutex_);
++        if (is_external_routing_ready()) {
++            auto its_routing_state {get_routing_state()};
++            if (its_routing_state != routing_state_e::RS_SUSPENDED) {
++                init_pending_services();
++            }
++        }
++    }
++#endif
+ }
+ 
+ void routing_manager_impl::init_pending_services() {
