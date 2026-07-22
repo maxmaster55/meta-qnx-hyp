@@ -1,0 +1,160 @@
+################################################################################
+## QNX hypervisor HOST image for Raspberry Pi 5 -- TEMPLATE.
+##
+## Reproduces the structure of qnx_host/images/rpi5-hypervisor.build from the
+## QNX hypervisor project, built through meta-qnx instead of the BSP makefiles.
+##
+## Note how different this is from the guest image, and that meta-qnx needed no
+## changes to express it: raw compressed image at a low load address, a
+## board-specific startup with hardware watchdog arming, real PCI and UART
+## hardware rather than virtio. All of that arrives through @...@ variables set
+## by the recipe, so the layer stays board-agnostic.
+##
+## Binaries resolve from three roots, searched in order (mkifs -r, leftmost
+## first): the recipe sysroot holding Yocto-built applications, the project's
+## BSP install tree holding the RPi5 drivers the SDP does not ship, and finally
+## $QNX_TARGET for everything standard (qvm, pci-server, io-sock, vdev-*.so).
+################################################################################
+
+[-optional]
+[+keeplinked]
+[image=@QNX_IMAGE_ADDR@]
+
+[virtual=@QNX_IMAGE_VIRTUAL@] boot = {
+    @QNX_STARTUP@ @QNX_STARTUP_ARGS@
+    PATH=@QNX_IFS_PATH@ LD_LIBRARY_PATH=@QNX_IFS_LD_LIBRARY_PATH@ @QNX_KERNEL@ @QNX_KERNEL_ARGS@
+}
+
+[+script] startup-script = {
+    SYSNAME=nto
+    TERM=qansi
+
+    procmgr_symlink ../../proc/boot/ldqnx-64.so.2 /usr/lib/ldqnx-64.so.2
+
+    pipe
+    slogger2
+    dumper
+    mqueue
+    random
+
+    ############################################################################
+    ## The -W flag passed to startup arms the hardware watchdog, so wdtkick is
+    ## not optional -- without it the board resets a few seconds into boot.
+    ############################################################################
+    display_msg "Starting wdtkick ..."
+    wdtkick -W0x24:0x5A028E4C -W0x1c:0x5A000020
+
+    display_msg "Starting I2C driver ..."
+    i2c-dwc-rpi5 -p0x1f00074000 -c200000000 -q0xa8 --u1
+
+    ############################################################################
+    ## PCI. pci-server is backgrounded, so the waitfor is what actually makes
+    ## the following drivers safe -- the same reason QNX_IFS_STARTUP_WAITFOR
+    ## exists for application recipes.
+    ############################################################################
+    display_msg "Starting PCI server ..."
+    PCI_HW_MODULE=/lib/dll/pci/pci_hw-bcm2712-rpi5.so
+    PCI_SLOG_MODULE=/lib/dll/pci/pci_slog2.so
+    pci-server --bus-scan-limit=3 -c &
+    waitfor /dev/pci
+    pci-connector -n pci_mux
+    msix-rp1 -i 6,8,19,31,36,43,45 &
+
+    display_msg "Starting serial driver (/dev/ser10) ..."
+    devc-serpl011-rpi5 -b115200 -c44236800 -e -F -u10 -D 0x107d001000^2,153
+
+    display_msg "Starting networking ..."
+    gpio-rp1 set 32 op pd dh
+    io-sock -m phy -m fdt -d cgem -m pci -d em -d ix -d re -d igc
+
+    ############################################################################
+    ## RAM disk offered to guests as a virtual block device.
+    ############################################################################
+    display_msg "Creating ram disk for guests ..."
+    devb-ram ram capacity=262144 disk name=qvmdisk
+
+    ############################################################################
+    ## Applications, ordered by QNX_IFS_STARTUP_PRIORITY.
+    ############################################################################
+@QNX_IFS_STARTUP@
+
+    display_msg "Starting shell ..."
+    reopen /dev/ser10
+    [+session] ksh &
+}
+
+[uid=0 gid=0]
+
+[type=link] /bin/sh=/bin/ksh
+[type=link] /tmp=/dev/shmem
+[type=link] /dev/console=/dev/ser10
+[type=link] /var/log=/tmp
+[type=link] /usr/tmp=/tmp
+
+################################################################################
+## Applications -- generated from QNX_IFS_INSTALL.
+################################################################################
+@QNX_IFS_FILES@
+
+################################################################################
+## Board drivers. Not in the SDP: these come from the BSP install tree added
+## via QNX_IFS_EXTRA_ROOTS.
+################################################################################
+/bin/wdtkick=wdtkick
+/sbin/i2c-dwc-rpi5=i2c-dwc-rpi5
+/sbin/devc-serpl011-rpi5=devc-serpl011-rpi5
+/bin/gpio-rp1=gpio-rp1
+/bin/msix-rp1=msix-rp1
+
+################################################################################
+## The hypervisor itself, plus the virtual devices it offers to guests.
+## All from $QNX_TARGET.
+################################################################################
+/sbin/qvm=qvm
+[+optional] /bin/qvm-check=qvm-check
+
+/lib/dll/vdev-shmem.so=vdev-shmem.so
+/lib/dll/vdev-virtio-blk.so=vdev-virtio-blk.so
+/lib/dll/vdev-virtio-console.so=vdev-virtio-console.so
+/lib/dll/vdev-virtio-net.so=vdev-virtio-net.so
+/lib/dll/vdev-virtio-entropy.so=vdev-virtio-entropy.so
+/lib/dll/vdev-pl011.so=vdev-pl011.so
+/lib/dll/vdev-progress.so=vdev-progress.so
+
+################################################################################
+## PCI support
+################################################################################
+/sbin/pci-server=pci-server
+/sbin/pci-connector=pci-connector
+
+# Nested under lib/dll/pci, so referenced by subpath rather than bare name:
+# mkifs's search path covers lib/dll, not its subdirectories.
+/lib/dll/pci/pci_hw-bcm2712-rpi5.so=pci/pci_hw-bcm2712-rpi5.so
+/lib/dll/pci/pci_slog2.so=pci/pci_slog2.so
+/lib/dll/pci/pci_debug2.so=pci/pci_debug2.so
+/lib/libpci.so=libpci.so
+
+################################################################################
+## Storage and networking
+################################################################################
+/sbin/devb-ram=devb-ram
+/lib/libcam.so=libcam.so
+/lib/dll/io-blk.so=io-blk.so
+/lib/dll/cam-disk.so=cam-disk.so
+/lib/dll/fs-qnx6.so=fs-qnx6.so
+/lib/dll/fs-dos.so=fs-dos.so
+
+/sbin/io-sock=io-sock
+/sbin/ifconfig=ifconfig
+/sbin/route=route
+/usr/sbin/sysctl=sysctl
+
+################################################################################
+## Base utilities
+################################################################################
+/bin/ksh=ksh
+/bin/pidin=pidin
+/bin/waitfor=waitfor
+/bin/slay=slay
+/bin/mount=mount
+/sbin/devc-pty=devc-pty
