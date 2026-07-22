@@ -16,7 +16,8 @@ B = "${WORKDIR}/build"
 QNX_IFS_NAME = "qnx-host"
 QNX_IFS_TEMPLATE = "${S}/qnx-host.build.in"
 
-QNX_IFS_INSTALL = "rpi-gpio shm-chunker"
+QNX_IFS_INSTALL = "rpi-gpio shm-chunker frame-router motor-controller qnx-host-conf \
+                   libepoxy virglrenderer vdev-virtio-gpu"
 
 # ---------------------------------------------------------------------------
 # Boot configuration -- the host, not a guest

@@ -74,6 +74,19 @@
     devb-ram ram capacity=262144 disk name=qvmdisk
 
     ############################################################################
+    ## Graphics. Screen is the compositor; the script brings it up with the
+    ## repo-versioned display config and then starts the frame router.
+    ############################################################################
+    display_msg "Starting graphics ..."
+    ksh /scripts/host-graphics-start.sh &
+
+    ############################################################################
+    ## Wifi
+    ############################################################################
+    display_msg "Starting wifi ..."
+    ksh /scripts/wifi-start.sh &
+
+    ############################################################################
     ## Applications, ordered by QNX_IFS_STARTUP_PRIORITY.
     ############################################################################
 @QNX_IFS_STARTUP@
@@ -148,6 +161,78 @@
 /sbin/ifconfig=ifconfig
 /sbin/route=route
 /usr/sbin/sysctl=sysctl
+
+################################################################################
+## Graphics: the RPi5 GPU driver stack, all from $QNX_TARGET.
+##
+## Referenced by subpath (graphics/drm-rpi5/...) rather than bare name: mkifs
+## searches lib/dll but not arbitrary nested directories.
+################################################################################
+[type=file uid=0 gid=0 perms=0555] /bin/drm-rpi5=drm-rpi5
+[type=file uid=0 gid=0 perms=0444] /lib/graphics/drm-rpi5/dri_gbm.so=dri_gbm.so
+[type=file uid=0 gid=0 perms=0444] /lib/graphics/drm-rpi5/EGL-mesa.so=graphics/drm-rpi5/EGL-mesa.so
+[type=file uid=0 gid=0 perms=0444] /lib/graphics/drm-rpi5/GLESv2-mesa.so=graphics/drm-rpi5/GLESv2-mesa.so
+[type=file uid=0 gid=0 perms=0444] /lib/graphics/drm-rpi5/gpu_rpi5.so=graphics/drm-rpi5/gpu_rpi5.so
+[type=file uid=0 gid=0 perms=0444] /lib/graphics/drm-rpi5/libwfdcfg-rpi5.so=graphics/drm-rpi5/libwfdcfg-rpi5.so
+[type=file uid=0 gid=0 perms=0444] /lib/graphics/drm-rpi5/libWFDrpi5.so=graphics/drm-rpi5/libWFDrpi5.so
+[type=file uid=0 gid=0 perms=0444] /lib/graphics/drm-rpi5/screen-alloc-rpi5.so=graphics/drm-rpi5/screen-alloc-rpi5.so
+[type=file uid=0 gid=0 perms=0444] /lib/graphics/drm-rpi5/v3d_dri.so=graphics/drm-rpi5/v3d_dri.so
+
+################################################################################
+## Screen -- the QNX compositor the guests render through.
+################################################################################
+/bin/screen=screen
+/bin/screencmd=screencmd
+/bin/screeninfo=screeninfo
+
+/lib/libscreen.so.1=libscreen.so.1
+/lib/libscrmem.so.1=libscrmem.so.1
+/lib/libmemobj.so.1=libmemobj.so.1
+/lib/libdrm.so.2=libdrm.so.2
+/lib/libWFD.so.1=libWFD.so.1
+/lib/libgbm.so.1=libgbm.so.1
+
+[type=link] /lib/libscreen.so=libscreen.so.1
+[type=link] /lib/libscrmem.so=libscrmem.so.1
+[type=link] /lib/libmemobj.so=libmemobj.so.1
+[type=link] /lib/libdrm.so=libdrm.so.2
+[type=link] /lib/libWFD.so=libWFD.so.1
+[type=link] /lib/libgbm.so=libgbm.so.1
+
+/lib/dll/screen-debug.so=screen-debug.so
+/lib/dll/screen-gles2blt.so=screen-gles2blt.so
+/lib/dll/screen-sw.so=screen-sw.so
+/lib/dll/screen-stdbuf.so=screen-stdbuf.so
+
+################################################################################
+## EGL / GLES
+################################################################################
+/lib/libEGL.so.1=libEGL.so.1
+/lib/libGLESv2.so.1=libGLESv2.so.1
+[type=link] /lib/libEGL.so=libEGL.so.1
+[type=link] /lib/libGLESv2.so=libGLESv2.so.1
+[type=link] /lib/libGLESv2.so.2=libGLESv2.so.1
+
+################################################################################
+## Wifi. The driver and wpa_supplicant are optional so the image still builds
+## on an SDP without them.
+################################################################################
+[+optional] /lib/dll/devnp-qwdi.so=devnp-qwdi.so
+[+optional] /usr/sbin/wpa_supplicant=wpa_supplicant-2.11
+[+optional] /usr/bin/wpa_cli=wpa_cli-2.11
+[+optional] /sbin/dhcpcd=dhcpcd
+
+################################################################################
+## Remote access: ssh and the Momentics debug agent.
+################################################################################
+[+optional uid=0 gid=0 perms=0755] /usr/sbin/sshd=sshd
+[+optional uid=0 gid=0 perms=0755] /usr/bin/ssh=ssh
+[+optional uid=0 gid=0 perms=0755] /usr/bin/scp=scp
+[+optional uid=0 gid=0 perms=0755] /usr/bin/ssh-keygen=ssh-keygen
+# qconn needs a pty, which devc-pty provides -- it is listed once, with the
+# base utilities below. mkifs treats a redefined entry as an error, not a
+# warning, so an entry belongs in exactly one place.
+[+optional] /usr/bin/qconn=qconn
 
 ################################################################################
 ## Base utilities. ls/cat/uname etc. arrive via toybox in the generated
