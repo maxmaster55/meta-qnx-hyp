@@ -1,0 +1,34 @@
+# FAT boot partition for a Raspberry Pi 5 -- mkfatfsimg TEMPLATE.
+#
+# This is what the Pi's firmware reads at power-on: it looks for config.txt on
+# the first FAT partition, and everything else follows from there.
+#
+# Modelled on qnx_host/images/rpi5-part_dos_boot.build. The size is the one real
+# difference: that file carries a hand-maintained [num_sectors=409600], while
+# @QNX_DISK_BOOT_SECTORS@ is computed from what actually goes in.
+
+[num_sectors=@QNX_DISK_BOOT_SECTORS@]
+
+config.txt = {
+arm_64bit=1
+cmdline=cmdline.txt
+device_tree=bcm2712-rpi-5-b.dtb
+max_framebuffers=2
+enable_uart=1
+kernel=qnx_sdp.ifs
+}
+
+# root= names the QNX6 data partition. Type 179 is QNX6; the Pi's firmware does
+# not read it, but procnto mounts it once the IFS is running.
+cmdline.txt = {
+verbose root=/dev/sd0t179 rootfstype=qnx6fs
+}
+
+# The IFS built by the qnx-host-image recipe, taken from the deploy directory.
+qnx_sdp.ifs = @DEPLOY_DIR_IMAGE@/qnx-host.ifs
+
+# Raspberry Pi firmware and device tree. Not QNX components and not in the SDP.
+bcm2712-rpi-5-b.dtb = @QNX_RPI_FIRMWARE@/bcm2712-rpi-5-b.dtb
+start4.elf = @QNX_RPI_FIRMWARE@/start4.elf
+fixup4.dat = @QNX_RPI_FIRMWARE@/fixup4.dat
+overlays = @QNX_RPI_FIRMWARE@/overlays

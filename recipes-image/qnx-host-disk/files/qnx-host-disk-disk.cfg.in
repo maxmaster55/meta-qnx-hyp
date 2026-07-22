@@ -1,0 +1,20 @@
+# MBR disk layout -- diskimage TEMPLATE.
+#
+# Geometry is chosen so a cylinder is exactly 1 MiB
+# (@QNX_DISK_HEADS@ * @QNX_DISK_SECTORS_PER_TRACK@ * @QNX_DISK_SECTOR_SIZE@),
+# which keeps the disk size on whole megabytes and partition starts aligned.
+[heads=@QNX_DISK_HEADS@]
+[sectors_per_track=@QNX_DISK_SECTORS_PER_TRACK@]
+[sector_size=@QNX_DISK_SECTOR_SIZE@]
+
+[start_at_cylinder=0]
+
+# Computed from the partition images actually produced, rather than the
+# hand-maintained "***CYLINDERS MODIFIED BY BUILD" value a QNX BSP carries.
+[cylinders=@QNX_DISK_CYLINDERS@]
+
+# type 12 = FAT32 (LBA), what the Pi's firmware boots from.
+# type 179 = QNX6.
+# diskimage resizes each partition to fit the image file given.
+[partition=1 type=12 boot=true]  "part-boot.img"
+[partition=2 type=179]           "part-data.img"

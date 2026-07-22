@@ -1,0 +1,30 @@
+# QNX6 data partition -- mkqnx6fsimg TEMPLATE.
+#
+# An IFS is RAM-resident, so anything large belongs here instead: guest images,
+# application payloads, and writable state. Modelled on
+# qnx_host/images/part_qnx_data.build.
+#
+# @QNX_DISK_DATA_SECTORS@ replaces that file's hand-maintained
+# [num_sectors=10485760] and its "***SECTORS MODIFIED BY BUILD" marker.
+
+[num_sectors=@QNX_DISK_DATA_SECTORS@]
+
+# Inodes are preallocated at format time, so this is a hard ceiling on the
+# number of files the partition can ever hold.
+[num_inodes=@QNX_DISK_DATA_INODES@]
+[blksize=@QNX_DISK_DATA_BLKSIZE@]
+
+# Directories the running system expects to exist.
+[type=dir] /etc/ssh
+[type=dir] /var/run
+[type=dir] /var/log
+[type=dir] /scripts
+[type=dir] /guests
+
+# Mounted by the startup script once storage is up.
+/scripts/board_startup.sh = {
+#!/bin/sh
+
+echo "Running board startup script ..."
+mount -tdos /dev/sd0t12 /dos
+}
