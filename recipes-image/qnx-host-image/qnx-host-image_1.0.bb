@@ -38,6 +38,20 @@ QNX_IFS_PATH = "/proc/boot:/sbin:/bin:/usr/bin:/usr/sbin:/usr/libexec"
 QNX_IFS_LD_LIBRARY_PATH = "/proc/boot:/lib:/usr/lib:/lib/dll:/lib/dll/pci"
 
 # ---------------------------------------------------------------------------
+# Guest networking
+# ---------------------------------------------------------------------------
+# The peer path is /dev/qvm/<system>/<vdev name>, taken from the guest's
+# .qvmconf: its "system" line and the name of its guest_to_host virtio-net vdev.
+# If these disagree, vpctl binds nothing and the guest comes up with a dead
+# interface -- so they are named here rather than buried in the boot script.
+#
+# A layer that adds a differently-named guest overrides these; a layer that adds
+# a second guest also needs a vp1 stanza.
+QNX_HOST_GUEST_PEER ?= "/dev/qvm/guest_1/guest_to_host"
+QNX_HOST_GUEST_IP ?= "10.0.0.1"
+QNX_HOST_GUEST_NET ?= "10.0.0.0/24"
+
+# ---------------------------------------------------------------------------
 # BSP binaries
 # ---------------------------------------------------------------------------
 # startup-bcm2712-rpi5, i2c-dwc-rpi5, devc-serpl011-rpi5, gpio-rp1, msix-rp1 and

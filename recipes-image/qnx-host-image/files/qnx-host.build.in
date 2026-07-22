@@ -65,7 +65,21 @@
 
     display_msg "Starting networking ..."
     gpio-rp1 set 32 op pd dh
-    io-sock -m phy -m fdt -d cgem -m pci -d em -d ix -d re -d igc
+    # -m vdevpeer-net is what makes guest networking possible at all: it is the
+    # module that turns a guest's virtio-net vdev into an interface on this side.
+    io-sock -m phy -m fdt -d cgem -m pci -d em -d ix -d re -d igc -m vdevpeer-net
+
+    ############################################################################
+    ## Guest networking. Creates one vdevpeer interface per guest and bridges
+    ## the physical NIC, so a guest can reach the host and the outside world.
+    ############################################################################
+    display_msg "Setting up guest networking ..."
+    /proc/boot/.vdev_net_start.sh
+
+    display_msg "Enabling routing for guests ..."
+    sysctl -w net.inet.ip.forwarding=1
+    pfctl -f /etc/pf.conf
+    pfctl -e
 
     ############################################################################
     ## RAM disk offered to guests as a virtual block device.
@@ -97,6 +111,52 @@
 }
 
 [uid=0 gid=0]
+
+################################################################################
+## Guest networking setup.
+##
+## Each guest gets a vdevpeer interface (vp0, vp1, ...) bound to the
+## virtio-net vdev named "guest_to_host" in that guest's .qvmconf. The peer
+## path is /dev/qvm/<system>/<vdev name>, where <system> is the guest's
+## "system" line -- so this file and the guest's .qvmconf have to agree.
+##
+## The checksum offloads are switched off deliberately: the peer link is a
+## software path, and leaving them on gives corrupt frames.
+################################################################################
+[perms=0744] .vdev_net_start.sh = {
+#!/bin/ksh
+
+# The module io-sock loads for vdevpeer interfaces. Nothing below works until
+# it is there.
+waitfor /dev/io-sock/mods-vdevpeer-net.so 10
+
+# --- QNX guest -------------------------------------------------------------
+ifconfig vp0 create
+vpctl vp0 peer=@QNX_HOST_GUEST_PEER@ bind=/dev/vdevpeers/vp0
+ifconfig vp0 @QNX_HOST_GUEST_IP@ netmask 255.255.255.0 up
+ifconfig vp0 -txcsum -txcsum6 -tso4 -tso6
+
+# --- physical NIC and bridge ----------------------------------------------
+# The bridge carries the external LAN only; vp0 stays out of it and is routed
+# instead, which is what the pf rules below are for.
+if_up -p cgem0
+ifconfig cgem0 up
+sysctl -w net.link.bridge.inherit_mac=1
+ifconfig bridge0 create up addm cgem0
+}
+
+################################################################################
+## Firewall: NAT the guest network out through the bridge, so a guest can reach
+## the outside world with the host as its gateway.
+################################################################################
+[perms=0644] /etc/pf.conf = {
+ext_if = "bridge0"
+guest_net = "@QNX_HOST_GUEST_NET@"
+
+nat on $ext_if from $guest_net to any -> ($ext_if)
+pass in quick on vp0 all
+pass out quick on $ext_if all
+}
 
 [type=link] /bin/sh=/bin/ksh
 [type=link] /tmp=/dev/shmem
@@ -161,6 +221,13 @@
 /sbin/ifconfig=ifconfig
 /sbin/route=route
 /usr/sbin/sysctl=sysctl
+
+# vdevpeer networking: the io-sock module, its control utility, the interface
+# bring-up helper and the packet filter.
+/lib/dll/mods-vdevpeer-net.so=mods-vdevpeer-net.so
+/sbin/vpctl=vpctl
+[+optional] /sbin/if_up=if_up
+/sbin/pfctl=pfctl
 
 ################################################################################
 ## Graphics: the RPi5 GPU driver stack, all from $QNX_TARGET.
