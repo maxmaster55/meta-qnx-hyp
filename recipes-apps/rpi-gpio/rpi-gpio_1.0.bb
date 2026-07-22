@@ -33,3 +33,8 @@ EXTERNALSRC_BUILD = "${WORKDIR}/build"
 QNX_IFS_STARTUP_CMD = "rpi_gpio &"
 QNX_IFS_STARTUP_PRIORITY = "300"
 QNX_IFS_STARTUP_WAITFOR = "/dev/gpio"
+
+# It links against login and secpol and drives hardware, so it runs as root and
+# stays launchable by an unprivileged user -- the same treatment the project's
+# guest build files give ping and traceroute.
+QNX_IFS_ATTR[rpi_gpio] = "uid=0 gid=0 perms=4755"
