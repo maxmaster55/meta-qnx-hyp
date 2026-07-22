@@ -150,7 +150,8 @@
 /usr/sbin/sysctl=sysctl
 
 ################################################################################
-## Base utilities
+## Base utilities. ls/cat/uname etc. arrive via toybox in the generated
+## section above -- QNX 8 ships no standalone versions of them.
 ################################################################################
 /bin/ksh=ksh
 /bin/pidin=pidin
