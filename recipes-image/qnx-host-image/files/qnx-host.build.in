@@ -39,9 +39,14 @@
     display_msg "Starting PCI server ..."
     PCI_HW_MODULE=/lib/dll/pci/pci_hw-bcm2712-rpi5.so
     PCI_SLOG_MODULE=/lib/dll/pci/pci_slog2.so
+    PCI_DEBUG_MODULE=/lib/dll/pci/pci_debug2.so
     pci-server --bus-scan-limit=3 -c &
     waitfor /dev/pci
     pci-connector -n pci_mux
+    # The reference BSP sleeps here before programming the RP1's MSI-X vectors.
+    # pci-connector returning means the mux is up, not that the RP1 behind it has
+    # finished enumerating, and there is nothing to waitfor in between.
+    sleep 1
     msix-rp1 -i 6,8,19,31,36,43,45 &
 
     display_msg "Starting serial driver (/dev/ser10) ..."
@@ -70,6 +75,21 @@
     ############################################################################
     display_msg "Creating ram disk for guests ..."
     devb-ram ram capacity=262144 disk name=qvmdisk
+
+    ############################################################################
+    ## SD card. This is what makes the disk's second partition reachable: the
+    ## IFS is a RAM image and carries no guests, no Qt and no writable state --
+    ## all of that lives on the QNX6 data partition and arrives only once this
+    ## driver has published /dev/sd0t179 and the storage script has mounted it.
+    ##
+    ## Backgrounded through `sh -c` with output discarded, exactly as the
+    ## reference BSP does: the driver chatters on stdout and never exits.
+    ############################################################################
+    display_msg "Starting SDMMC driver (/dev/sd0) ..."
+    sh -c "devb-sdmmc-bcm2712 sdio addr=@QNX_HOST_SDMMC_ADDR@,irq=@QNX_HOST_SDMMC_IRQ@ disk name=sd > /dev/null 2>&1" &
+
+    display_msg "Mounting data partition ..."
+    /proc/boot/.storage-server.sh
 
     ############################################################################
     ## Graphics. Screen is the compositor; the script brings it up with the
@@ -172,18 +192,6 @@ pass out quick on $ext_if all
 /lib/dll/vdev-pl011.so=vdev-pl011.so
 /lib/dll/vdev-progress.so=vdev-progress.so
 
-################################################################################
-## PCI support
-################################################################################
-/sbin/pci-server=pci-server
-/sbin/pci-connector=pci-connector
-
-# Nested under lib/dll/pci, so referenced by subpath rather than bare name:
-# mkifs's search path covers lib/dll, not its subdirectories.
-/lib/dll/pci/pci_hw-bcm2712-rpi5.so=pci/pci_hw-bcm2712-rpi5.so
-/lib/dll/pci/pci_slog2.so=pci/pci_slog2.so
-/lib/dll/pci/pci_debug2.so=pci/pci_debug2.so
-/lib/libpci.so=libpci.so
 
 ################################################################################
 ## Storage and networking. The shared stacks carry the parts that are the same
@@ -191,19 +199,12 @@ pass out quick on $ext_if all
 ## a RAM disk offered to guests, FAT for the boot partition, and the vdevpeer
 ## machinery that turns a guest's virtio-net vdev into an interface on this side.
 ################################################################################
-#include qnx-block.build.inc
-#include qnx-net.build.inc
 
 /sbin/devb-ram=devb-ram
-/lib/dll/fs-dos.so=fs-dos.so
-/usr/sbin/sysctl=sysctl
 
-# vdevpeer networking: the io-sock module, its control utility, the interface
-# bring-up helper and the packet filter.
-/lib/dll/mods-vdevpeer-net.so=mods-vdevpeer-net.so
-/sbin/vpctl=vpctl
-[+optional] /sbin/if_up=if_up
-/sbin/pfctl=pfctl
+/lib/dll/fs-dos.so=fs-dos.so
+
+
 
 ################################################################################
 ## Graphics: the RPi5 GPU driver stack, all from $QNX_TARGET.

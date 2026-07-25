@@ -24,7 +24,15 @@ QNX_IFS_TEMPLATE = "${S}/qnx-host.build.in"
 # packagegroup-qnx-hyp-common is frame-router and rpi-gpio, the components that
 # by construction exist on both sides of the hypervisor. The guest image
 # installs the same group, so the two cannot drift apart.
-QNX_IFS_INSTALL = "packagegroup-qnx-hyp-common motor-controller qnx-host-conf \
+#
+# The qnx-* entries on the first two lines are the SDP itself, each a recipe
+# naming every file that component consists of. That is what keeps ~90 lines of
+# pci_cap-*.so and devs-*.so out of this image's template, and more to the point
+# what makes "did I list all of them?" a question asked once in one file rather
+# than per image and answered on the board -- see qnx-sdp-component.bbclass.
+QNX_IFS_INSTALL = "qnx-base-runtime qnx-block qnx-io-sock \
+                   qnx-pci-rpi5 qnx-net-rpi5 qnx-storage-sdmmc-rpi5 \
+                   packagegroup-qnx-hyp-common motor-controller qnx-host-conf \
                    libepoxy virglrenderer vdev-virtio-gpu"
 
 # ---------------------------------------------------------------------------
@@ -63,6 +71,24 @@ QNX_CONSOLE_DEV = "/dev/ser10"
 QNX_HOST_GUEST_PEER ?= "/dev/qvm/guest_1/guest_to_host"
 QNX_HOST_GUEST_IP ?= "10.0.0.1"
 QNX_HOST_GUEST_NET ?= "10.0.0.0/24"
+
+# ---------------------------------------------------------------------------
+# SD card and the data partition
+# ---------------------------------------------------------------------------
+# The IFS is RAM-resident and carries none of the bulk: guests, Qt and writable
+# state all live on the disk's second partition, built by qnx-host-data and
+# union-mounted on / by .storage-server.sh. Without that mount the board boots
+# to a shell where /guests does not exist -- which looks like the data partition
+# was never built, and is really just that nothing mounted it.
+#
+# The SDMMC controller address and IRQ are board data, taken from the reference
+# BSP build file. They are here rather than in qnx-storage-sdmmc-rpi5 because
+# they belong to the startup *sequence*, which is this template's business: the
+# component owns the driver and the mount script, the image decides where in the
+# boot order they go. Which partition gets mounted, and how long to wait for it,
+# are the component's (QNX_STORAGE_PART, QNX_STORAGE_WAIT).
+QNX_HOST_SDMMC_ADDR ?= "0x1000fff000"
+QNX_HOST_SDMMC_IRQ ?= "305"
 
 # ---------------------------------------------------------------------------
 # BSP binaries
