@@ -32,11 +32,11 @@ EXTERNALSRC_BUILD = "${WORKDIR}/build"
 #
 # When you do want it started at boot, this is the shape -- and both lines
 # matter. rpi_gpio backgrounds itself, so the script would continue long before
-# resmgr_attach() has registered /dev/gpio (resmgr/main.c); the priority orders
+# resmgr_attach() has registered /dev/gpio (resmgr/main.c); AFTER orders
 # the command, the waitfor is what makes the ordering mean anything:
 #
 #   QNX_IFS_STARTUP_CMD = "rpi-gpio &"
-#   QNX_IFS_STARTUP_PRIORITY = "300"
+#   QNX_IFS_STARTUP_AFTER = ""
 #   QNX_IFS_STARTUP_WAITFOR = "/dev/gpio"
 
 # The project's build file installs the binary under a dash, not the underscore

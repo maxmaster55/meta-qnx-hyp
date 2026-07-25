@@ -11,20 +11,32 @@ to meta-qnx to make this layer work, meta-qnx is not generic enough yet.
 
 | Target | Result |
 | --- | --- |
-| `bitbake qnx-host-image` | Hypervisor host IFS for RPi5 — `qvm`, vdevs, PCI, board drivers |
-| `bitbake rpi-gpio` | GPIO resource manager (CMake) |
-| `bitbake shm-chunker` | Shared-memory chunker (plain make) |
+| `bitbake qnx-host-disk` | Flashable SD card image: FAT boot partition (Pi firmware + IFS) and a QNX6 data partition. With meta-qnx-guest in the build, the guest lands on the data partition. |
+| `bitbake qnx-host-image` | Hypervisor host IFS for RPi5 — `qvm`, vdevs, PCI, board drivers, the GPU stack |
+| `bitbake rpi-gpio` | GPIO resource manager (CMake, own GitHub repo) |
+| `bitbake frame-router` | Shared-memory framebuffer bridge (`fb_host`/`fb_guest`/`fb_test`) |
+| `bitbake motor-controller` | SPI/ADC motor controller (the monorepo's `giga_spi_8adc`) |
+| `bitbake qnx-host-conf` | Screen display + wifi configuration and start scripts |
+| `bitbake vdev-virtio-gpu` | Host-side virtio-gpu vdev, with `virglrenderer` and `libepoxy` (meson) beneath it |
 
-## Requirements
+## Where sources come from
 
-In `conf/local.conf`, in addition to meta-qnx's own settings:
+Application recipes inherit `qnx-src`. `rpi-gpio` and `vdev-virtio-gpu` (plus
+`virglrenderer`/`libepoxy` forks) clone their own repositories; the rest still live in the
+hypervisor monorepo and share [`conf/qnx-project-repo.inc`](conf/qnx-project-repo.inc) —
+one place holding the repo URL, branch and revision for all of them.
+
+Setting the monorepo checkout in `conf/local.conf` is still needed for the host image and
+disk (see below), and it also flips every monorepo recipe to building that working tree in
+place via `externalsrc`:
 
 ```bitbake
 QNX_PROJECT_SRC = "/path/to/Qnx_Hypervisor_rbye"
 ```
 
-The applications are built from that working tree via `externalsrc`, and the RPi5 BSP
-install tree under it supplies the board drivers (see below).
+Without it, monorepo recipes fetch from the repository instead, but `qnx-host-image` and
+`qnx-host-disk` are skipped — they need the RPi5 BSP install tree and the Pi firmware
+files, which only exist in the working tree.
 
 ## How the host image differs from a guest
 
@@ -67,17 +79,19 @@ The boot header of the generated image is byte-identical to the makefile-built
 `qnx_host/images/ifs-rpi5-hyp.bin` — same load address, same startup size (`0x2a048`),
 same entry point (`83808`), same flags.
 
-The images differ in size (≈9 MB vs ≈80 MB) because this one does not yet carry the Qt
-cluster, the GPU stack (`libepoxy`, `virglrenderer`, `vdev-virtio-gpu`), the SomeIP
-services, ssh, or the guest IFS payloads.
+The image now carries the GPU stack (`libepoxy`, `virglrenderer`, `vdev-virtio-gpu`); it
+still does not carry the Qt cluster, the SomeIP services or ssh, and guest payloads live
+on the data partition rather than inside the host IFS.
 
 ## Not done yet
 
-1. **Guest images and the data partition.** The real host boots guests whose IFS images and
-   `.qvmconf` files live on a QNX6 data partition, because an IFS is RAM-resident. Needs
-   `mkqnx6fsimg` support in meta-qnx.
-2. **`disk.img`** — FAT boot partition (`start4.elf`, `config.txt`, dtb, overlays) plus the
-   data partition, assembled with `mkfatfsimg` and `diskimage`.
-3. **The remaining applications** — `frame_router`, `giga_spi_8adc`, the SomeIP/CommonAPI
-   stack, and the GPU libraries (meson; `src/qnx-aarch64le.ini` is already a cross file).
-4. **The BSP itself**, so root 2 above disappears.
+1. **Nothing has booted.** Every check so far is static (`dumpifs`, `fdisk`, boot-header
+   comparison). Flashing `qnx-host-disk.img` and watching serial is the highest-value next
+   step.
+2. **Standalone repositories** for `frame-router`, `motor-controller` and `qnx-host-conf`
+   (and `shm-chunker` in meta-qnx-guest). They build from the monorepo working tree via
+   `QNX_PROJECT_SRC` and therefore have no sstate; each recipe records the one-line
+   `QNX_SRC_REPO` change to make once its repo exists.
+3. **The BSP itself** (`qnx_host/src` → `startup-bcm2712-rpi5`, board drivers), so the
+   second mkifs search root disappears and `QNX_PROJECT_SRC` stops being required for the
+   host image.

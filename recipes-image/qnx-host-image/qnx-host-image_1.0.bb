@@ -20,7 +20,11 @@ QNX_IFS_TEMPLATE = "${S}/qnx-host.build.in"
 # giga_spi_8adc, rpi-gpio and the GPU stack. shm_sender is deliberately absent
 # -- the project stages it in neither the host nor a guest, and it was only ever
 # here because it was the first application ported.
-QNX_IFS_INSTALL = "rpi-gpio frame-router motor-controller qnx-host-conf \
+#
+# packagegroup-qnx-hyp-common is frame-router and rpi-gpio, the components that
+# by construction exist on both sides of the hypervisor. The guest image
+# installs the same group, so the two cannot drift apart.
+QNX_IFS_INSTALL = "packagegroup-qnx-hyp-common motor-controller qnx-host-conf \
                    libepoxy virglrenderer vdev-virtio-gpu"
 
 # ---------------------------------------------------------------------------
@@ -40,6 +44,11 @@ QNX_STARTUP_ARGS = "-v -u reg -a -W 5000 -Q enable,el1-host"
 QNX_KERNEL_ARGS = "-v"
 QNX_IFS_PATH = "/proc/boot:/sbin:/bin:/usr/bin:/usr/sbin:/usr/libexec"
 QNX_IFS_LD_LIBRARY_PATH = "/proc/boot:/lib:/usr/lib:/lib/dll:/lib/dll/pci"
+
+# Real hardware, not a virtio console: /dev/console follows the board's UART,
+# which devc-serpl011-rpi5 creates in the startup script. Consumed by the shared
+# qnx-base.build.inc fragment, whose default is the guest's /dev/vcon1.
+QNX_CONSOLE_DEV = "/dev/ser10"
 
 # ---------------------------------------------------------------------------
 # Guest networking

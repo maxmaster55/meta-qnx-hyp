@@ -16,26 +16,10 @@
 ## $QNX_TARGET for everything standard (qvm, pci-server, io-sock, vdev-*.so).
 ################################################################################
 
-[-optional]
-[+keeplinked]
-[image=@QNX_IMAGE_ADDR@]
-
-[virtual=@QNX_IMAGE_VIRTUAL@] boot = {
-    @QNX_STARTUP@ @QNX_STARTUP_ARGS@
-    PATH=@QNX_IFS_PATH@ LD_LIBRARY_PATH=@QNX_IFS_LD_LIBRARY_PATH@ @QNX_KERNEL@ @QNX_KERNEL_ARGS@
-}
+#include qnx-boot.build.inc
 
 [+script] startup-script = {
-    SYSNAME=nto
-    TERM=qansi
-
-    procmgr_symlink ../../proc/boot/ldqnx-64.so.2 /usr/lib/ldqnx-64.so.2
-
-    pipe
-    slogger2
-    dumper
-    mqueue
-    random
+#include qnx-startup-preamble.build.inc
 
     ############################################################################
     ## The -W flag passed to startup arms the hardware watchdog, so wdtkick is
@@ -101,7 +85,7 @@
     ksh /scripts/wifi-start.sh &
 
     ############################################################################
-    ## Applications, ordered by QNX_IFS_STARTUP_PRIORITY.
+    ## Applications, ordered by QNX_IFS_STARTUP_AFTER dependencies.
     ############################################################################
 @QNX_IFS_STARTUP@
 
@@ -158,12 +142,6 @@ pass in quick on vp0 all
 pass out quick on $ext_if all
 }
 
-[type=link] /bin/sh=/bin/ksh
-[type=link] /tmp=/dev/shmem
-[type=link] /dev/console=/dev/ser10
-[type=link] /var/log=/tmp
-[type=link] /usr/tmp=/tmp
-
 ################################################################################
 ## Applications -- generated from QNX_IFS_INSTALL.
 ################################################################################
@@ -208,18 +186,16 @@ pass out quick on $ext_if all
 /lib/libpci.so=libpci.so
 
 ################################################################################
-## Storage and networking
+## Storage and networking. The shared stacks carry the parts that are the same
+## in every image; what is listed here is what makes this one a hypervisor host:
+## a RAM disk offered to guests, FAT for the boot partition, and the vdevpeer
+## machinery that turns a guest's virtio-net vdev into an interface on this side.
 ################################################################################
-/sbin/devb-ram=devb-ram
-/lib/libcam.so=libcam.so
-/lib/dll/io-blk.so=io-blk.so
-/lib/dll/cam-disk.so=cam-disk.so
-/lib/dll/fs-qnx6.so=fs-qnx6.so
-/lib/dll/fs-dos.so=fs-dos.so
+#include qnx-block.build.inc
+#include qnx-net.build.inc
 
-/sbin/io-sock=io-sock
-/sbin/ifconfig=ifconfig
-/sbin/route=route
+/sbin/devb-ram=devb-ram
+/lib/dll/fs-dos.so=fs-dos.so
 /usr/sbin/sysctl=sysctl
 
 # vdevpeer networking: the io-sock module, its control utility, the interface
@@ -282,12 +258,11 @@ pass out quick on $ext_if all
 
 ################################################################################
 ## Wifi. The driver and wpa_supplicant are optional so the image still builds
-## on an SDP without them.
+## on an SDP without them. dhcpcd comes from the shared networking fragment.
 ################################################################################
 [+optional] /lib/dll/devnp-qwdi.so=devnp-qwdi.so
 [+optional] /usr/sbin/wpa_supplicant=wpa_supplicant-2.11
 [+optional] /usr/bin/wpa_cli=wpa_cli-2.11
-[+optional] /sbin/dhcpcd=dhcpcd
 
 ################################################################################
 ## Remote access: ssh and the Momentics debug agent.
@@ -302,12 +277,10 @@ pass out quick on $ext_if all
 [+optional] /usr/bin/qconn=qconn
 
 ################################################################################
-## Base utilities. ls/cat/uname etc. arrive via toybox in the generated
-## section above -- QNX 8 ships no standalone versions of them.
+## Base filesystem layout and utilities -- shared with the guest image.
+##
+## devc-pty is not in the fragment: only this image needs a pty, for qconn.
 ################################################################################
-/bin/ksh=ksh
-/bin/pidin=pidin
-/bin/waitfor=waitfor
-/bin/slay=slay
-/bin/mount=mount
+#include qnx-base.build.inc
+
 /sbin/devc-pty=devc-pty
