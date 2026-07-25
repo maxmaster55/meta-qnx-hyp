@@ -3,16 +3,11 @@
 # An IFS is RAM-resident, so anything large belongs here instead: guest images,
 # application payloads, and writable state. Modelled on
 # qnx_host/images/part_qnx_data.build.
-#
-# @QNX_DISK_DATA_SECTORS@ replaces that file's hand-maintained
-# [num_sectors=10485760] and its "***SECTORS MODIFIED BY BUILD" marker.
 
-[num_sectors=@QNX_DISK_DATA_SECTORS@]
+[num_sectors=@QNX_ROOTFS_SECTORS@]
 
-# Inodes are preallocated at format time, so this is a hard ceiling on the
-# number of files the partition can ever hold.
-[num_inodes=@QNX_DISK_DATA_INODES@]
-[blksize=@QNX_DISK_DATA_BLKSIZE@]
+[num_inodes=@QNX_ROOTFS_INODES@]
+[blksize=@QNX_ROOTFS_BLKSIZE@]
 
 # Directories the running system expects to exist.
 [type=dir] /etc/ssh
@@ -23,9 +18,9 @@
 
 ################################################################################
 ## Contributed by other layers -- guest images and their configuration land
-## here. Empty unless something sets QNX_DISK_DATA_EXTRA.
+## here. Empty unless something sets QNX_ROOTFS_EXTRA.
 ################################################################################
-@QNX_DISK_DATA_EXTRA@
+@QNX_ROOTFS_EXTRA@
 
 # Mounted by the startup script once storage is up.
 /scripts/board_startup.sh = {

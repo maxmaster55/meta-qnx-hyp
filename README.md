@@ -11,7 +11,7 @@ to meta-qnx to make this layer work, meta-qnx is not generic enough yet.
 
 | Target | Result |
 | --- | --- |
-| `bitbake qnx-host-disk` | Flashable SD card image: FAT boot partition (Pi firmware + IFS) and a QNX6 data partition. With meta-qnx-guest in the build, the guest lands on the data partition. |
+| `bitbake qnx-host-disk` | Flashable SD card image: FAT boot partition (Pi firmware + IFS) and a QNX6 data partition (built by `qnx-host-data`). With meta-qnx-guest in the build, the guest lands on the data partition. |
 | `bitbake qnx-host-image` | Hypervisor host IFS for RPi5 — `qvm`, vdevs, PCI, board drivers, the GPU stack |
 | `bitbake rpi-gpio` | GPIO resource manager (CMake, own GitHub repo) |
 | `bitbake frame-router` | Shared-memory framebuffer bridge (`fb_host`/`fb_guest`/`fb_test`) |
