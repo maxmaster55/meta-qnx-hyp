@@ -8,10 +8,14 @@ inherit qnx-sdp-component
 
 SRC_URI = "file://storage-server.sh"
 
-# devb-sdmmc-bcm2712 is an RPi5 driver built from the BSP sources and is not in
-# the SDP, so the BSP install tree is searched ahead of ${QNX_TARGET}. umount
-# and sync are standalone binaries in QNX 8 rather than toybox links.
-QNX_COMPONENT_ROOTS = "${QNX_PROJECT_SRC}/qnx_host/install ${QNX_TARGET}"
+# devb-sdmmc-bcm2712 comes from the Raspberry Pi 5 BSP, which is an SDP package
+# (the bsp-rpi5 feature), so ${QNX_TARGET} is where it normally is. QNX_BSP_ROOT
+# is searched first and is empty by default -- it exists for a BSP built outside
+# the SDP, and is a path rather than a reference to anybody's project tree.
+#
+# umount and sync are standalone binaries in QNX 8 rather than toybox links.
+QNX_BSP_ROOT ?= ""
+QNX_COMPONENT_ROOTS = "${QNX_BSP_ROOT} ${QNX_TARGET}"
 
 QNX_COMPONENT_FILES = "\
     devb-sdmmc-bcm2712 \
@@ -54,9 +58,3 @@ do_install() {
 	chmod 0744 ${D}${QNX_STAGE_DIR}/storage/storage-server.sh
 }
 
-python () {
-    if not d.getVar('QNX_PROJECT_SRC'):
-        raise bb.parse.SkipRecipe(
-            "QNX_PROJECT_SRC is not set; devb-sdmmc-bcm2712 is a BSP binary "
-            "that lives in the monorepo's qnx_host/install tree.")
-}

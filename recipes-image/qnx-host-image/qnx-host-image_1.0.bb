@@ -94,17 +94,18 @@ QNX_HOST_SDMMC_IRQ ?= "305"
 # BSP binaries
 # ---------------------------------------------------------------------------
 # startup-bcm2712-rpi5, i2c-dwc-rpi5, devc-serpl011-rpi5, gpio-rp1, msix-rp1 and
-# wdtkick are built from the BSP sources in qnx_host/src and are not part of the
-# SDP, so the BSP install tree is added as a second mkifs search root. Building
-# that BSP through Yocto is a separate job; for now this consumes its output.
-QNX_IFS_EXTRA_ROOTS = "${QNX_PROJECT_SRC}/qnx_host/install"
-
-python () {
-    if not d.getVar('QNX_PROJECT_SRC'):
-        raise bb.parse.SkipRecipe(
-            "QNX_PROJECT_SRC is not set; it is needed for the RPi5 BSP install "
-            "tree that provides startup-bcm2712-rpi5 and the board drivers.")
-}
+# wdtkick. These come from the Raspberry Pi 5 BSP, which is an SDP package --
+# com.qnx.qnx800.bsp.hw.raspberrypi_bcm2712_rpi5, see the bsp-rpi5 feature in
+# meta-qnx/conf/qnx-sdp-features.inc. With it installed they are on mkifs's
+# normal search path and nothing extra is needed here.
+#
+# QNX_BSP_ROOT is the escape hatch for a BSP built outside the SDP: point it at
+# an install tree and it becomes an additional mkifs search root, searched
+# before $QNX_TARGET. That is how this image was built before the BSP package
+# was identified, and it is still how you would consume a locally modified BSP.
+# It is a path, not a project: no recipe here names anybody's checkout.
+QNX_BSP_ROOT ?= ""
+QNX_IFS_EXTRA_ROOTS = "${QNX_BSP_ROOT}"
 
 do_configure[noexec] = "1"
 do_compile[noexec] = "1"
