@@ -21,13 +21,9 @@ QNX_DISK_DATA_IMG = "${DEPLOY_DIR_IMAGE}/qnx-host-data.img"
 do_compile[depends] += "qnx-host-data:do_deploy"
 
 # Raspberry Pi firmware: start4.elf, fixup4.dat, the device tree and the overlays
-# directory. These are Broadcom/RPi artifacts, not QNX ones, and are not in the
-# SDP -- they come from the project tree alongside the BSP.
-QNX_RPI_FIRMWARE = "${QNX_PROJECT_SRC}/qnx_host/images"
-
-python () {
-    if not d.getVar('QNX_PROJECT_SRC'):
-        raise bb.parse.SkipRecipe(
-            "QNX_PROJECT_SRC is not set; it is needed for the Raspberry Pi "
-            "firmware files that go on the boot partition.")
-}
+# directory. Broadcom/RPi artifacts, not QNX ones, and not in the SDP -- they now
+# come from the rpi-firmware recipe, which fetches them pinned and checksummed
+# from raspberrypi/firmware. They used to be copied out of the hypervisor
+# monorepo, which is why this recipe no longer needs QNX_PROJECT_SRC at all.
+QNX_RPI_FIRMWARE = "${DEPLOY_DIR_IMAGE}/rpi-firmware"
+do_generate_diskfiles[depends] += "rpi-firmware:do_deploy"

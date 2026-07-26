@@ -6,19 +6,20 @@ LICENSE = "CLOSED"
 
 inherit qnx-sdp qnx-src
 
-# NO STANDALONE REPOSITORY YET.
+# Its own repository, split out of the hypervisor monorepo. Fetched rather than
+# built in place, so this recipe has a revision to hash and therefore sstate --
+# the working-tree build it replaced had neither and rebuilt every time.
 #
-# This application lives inside the QNX hypervisor monorepo, so there is nothing
-# of its own to clone; it is built from a local checkout instead. Split it into
-# its own repository and this becomes one line:
+# The repository root is the application: what used to be src/giga_spi_8adc inside the
+# monorepo. If the split kept that nesting instead, add it back with
+# QNX_SRC_SUBDIR = "src/giga_spi_8adc".
 #
-#     QNX_SRC_REPO = "git://github.com/you/giga_spi_8adc.git;protocol=https;branch=main"
+# QNX_SRC_REV defaults to ${AUTOREV}, which needs the network at *parse* time --
+# every bitbake invocation, not just a fetch. Pin it for reproducible and offline
+# builds:
 #
-# ...and QNX_SRC_LOCAL goes away. Until then QNX_PROJECT_SRC in local.conf says
-# where the checkout is, and this recipe has no sstate (a working tree has no
-# revision to hash) so it rebuilds every time.
-QNX_SRC_LOCAL = "${QNX_PROJECT_SRC}"
-QNX_SRC_SUBDIR = "src/giga_spi_8adc"
+#     QNX_SRC_REV = "<commit sha>"
+QNX_SRC_REPO = "git://git@github.com/PM-Maestro-ITI-GP-Org/motor-controller.git;protocol=ssh;branch=main"
 
 # sys/rpi_gpio.h. The upstream Makefile also reaches for it with a relative
 # -I../rpi-gpio/resmgr/public, which happens to work when building the working
