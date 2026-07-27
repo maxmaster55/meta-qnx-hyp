@@ -94,16 +94,20 @@ QNX_HOST_SDMMC_IRQ ?= "305"
 # BSP binaries
 # ---------------------------------------------------------------------------
 # startup-bcm2712-rpi5, i2c-dwc-rpi5, devc-serpl011-rpi5, gpio-rp1, msix-rp1 and
-# wdtkick. These come from the Raspberry Pi 5 BSP, which is an SDP package --
-# com.qnx.qnx800.bsp.hw.raspberrypi_bcm2712_rpi5, see the bsp-rpi5 feature in
-# meta-qnx/conf/qnx-sdp-features.inc. With it installed they are on mkifs's
-# normal search path and nothing extra is needed here.
+# wdtkick. These are not in ${QNX_TARGET}: the Software Center delivers a BSP as
+# a zip under ${QNX_SDP_ROOT}/bsp, and qnx-rpi5-bsp unpacks its prebuilt tree
+# into the stage tree -- which is already an mkifs search root, so this image's
+# build file names them by bare name and nothing here knows where they came
+# from. Get the zip with the bsp-rpi5 SDP feature.
 #
-# QNX_BSP_ROOT is the escape hatch for a BSP built outside the SDP: point it at
-# an install tree and it becomes an additional mkifs search root, searched
-# before $QNX_TARGET. That is how this image was built before the BSP package
-# was identified, and it is still how you would consume a locally modified BSP.
-# It is a path, not a project: no recipe here names anybody's checkout.
+# Conditional because QNX_BSP_ROOT below answers the same question a different
+# way: a build pointed at its own BSP tree does not want this recipe, and an SDP
+# predating the BSP package has no zip for it to unpack.
+DEPENDS += "${@'qnx-rpi5-bsp' if not (d.getVar('QNX_BSP_ROOT') or '').strip() else ''}"
+
+# For a BSP built outside the SDP, or a locally modified one: an additional
+# mkifs search root, searched before $QNX_TARGET. Empty by default, and a path
+# rather than a reference to anybody's project tree.
 QNX_BSP_ROOT ?= ""
 QNX_IFS_EXTRA_ROOTS = "${QNX_BSP_ROOT}"
 

@@ -8,17 +8,12 @@ inherit qnx-sdp-component
 
 SRC_URI = "file://storage-server.sh"
 
-# devb-sdmmc-bcm2712 comes from the Raspberry Pi 5 BSP, which is an SDP package
-# (the bsp-rpi5 feature), so ${QNX_TARGET} is where it normally is. QNX_BSP_ROOT
-# is searched first and is empty by default -- it exists for a BSP built outside
-# the SDP, and is a path rather than a reference to anybody's project tree.
-#
-# umount and sync are standalone binaries in QNX 8 rather than toybox links.
+# umount and sync are standalone binaries in QNX 8 rather than toybox links, and
+# both are in the SDP, so the component resolves them the usual way.
 QNX_BSP_ROOT ?= ""
 QNX_COMPONENT_ROOTS = "${QNX_BSP_ROOT} ${QNX_TARGET}"
 
 QNX_COMPONENT_FILES = "\
-    devb-sdmmc-bcm2712 \
     umount \
     sync \
 "
@@ -29,11 +24,24 @@ QNX_COMPONENT_FILES = "\
 # walks that list deliberately rather than globbing the drop-in directory.
 DEPENDS += "qnx-block qnx-base-runtime"
 
+# devb-sdmmc-bcm2712 is a raw record rather than a QNX_COMPONENT_FILES entry,
+# and the distinction is worth stating because it is not obvious.
+#
+# A component resolves its files at *parse* time, which is what lets a wrong
+# name fail the build naming the file. That only works for files that are
+# already on disk when parsing happens -- the SDP, or a BSP tree named by
+# QNX_BSP_ROOT. This driver comes from the BSP zip, which qnx-rpi5-bsp unpacks
+# into the stage tree during the *build*: it does not exist yet when this recipe
+# is parsed, and insisting on it here would make the component skip itself every
+# time. Named bare instead, and left to mkifs, which resolves against the stage
+# tree at image-build time and by then it is there.
+#
 # The mount cannot go in the startup script itself: that script is interpreted
 # by procnto, which has no `if`, `while` or `$(...)`, and the retry below is not
 # expressible there. devb-sdmmc is backgrounded and the card takes a moment to
 # enumerate, so the partition does not exist when the script first looks.
 QNX_IFS_EXTRA_ENTRIES = "\
+/sbin/devb-sdmmc-bcm2712=devb-sdmmc-bcm2712\n\
 [uid=0 gid=0 perms=0744] /proc/boot/.storage-server.sh=@QNX_IFS_SYSROOT@${QNX_STAGE_DIR}/storage/storage-server.sh\
 "
 
