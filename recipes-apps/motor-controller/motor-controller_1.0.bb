@@ -21,10 +21,18 @@ inherit qnx-sdp qnx-src
 #     QNX_SRC_REV = "<commit sha>"
 QNX_SRC_REPO = "git://git@github.com/PM-Maestro-ITI-GP-Org/motor-controller.git;protocol=ssh;branch=main"
 
-# sys/rpi_gpio.h. The upstream Makefile also reaches for it with a relative
-# -I../rpi-gpio/resmgr/public, which happens to work when building the working
-# tree in place; the DEPENDS is what makes it correct rather than lucky.
+# sys/rpi_gpio.h, which arrives in the sysroot. The Makefile used to reach for
+# it with a relative -I../rpi-gpio/resmgr/public -- a sibling directory in the
+# monorepo, which worked only because the working tree was built in place. It
+# now takes the path from EXTRA_CFLAGS below, so the DEPENDS is what makes this
+# correct rather than lucky.
 DEPENDS = "rpi-gpio"
+
+# The Makefile writes into a build/ directory beside itself. That used to be
+# implicit: building the working tree in place made EXTERNALSRC_BUILD default to
+# <source>/build, so ${B} already pointed there. Fetching leaves B equal to S,
+# and do_install then looked for the binaries one directory too high.
+B = "${S}/build"
 
 # The Makefile assigns CC and bakes -V into its own CFLAGS, so steer CC only --
 # overriding CFLAGS wholesale would drop its -V and -O flags.
