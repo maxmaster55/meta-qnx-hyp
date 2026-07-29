@@ -13,16 +13,16 @@ SRC_URI = "file://storage-server.sh"
 QNX_BSP_ROOT ?= ""
 QNX_COMPONENT_ROOTS = "${QNX_BSP_ROOT} ${QNX_TARGET}"
 
-QNX_COMPONENT_FILES = "\
-    umount \
-    sync \
-"
+# Nothing here: the driver is a raw record below (it is unpacked during the
+# build, not present at parse time) and umount/sync moved to qnx-fs-tools, where
+# a guest can have them without pulling in an SD card driver.
+QNX_COMPONENT_FILES = ""
 
 # The block stack this driver needs, and the base runtime whose ksh the storage
 # script is written in. DEPENDS gets their files into the installing image's
 # sysroot; the image still lists them in QNX_IFS_INSTALL, because qnx-ifs
 # walks that list deliberately rather than globbing the drop-in directory.
-DEPENDS += "qnx-block qnx-base-runtime"
+DEPENDS += "qnx-block qnx-base-runtime qnx-fs-tools"
 
 # devb-sdmmc-bcm2712 is a raw record rather than a QNX_COMPONENT_FILES entry,
 # and the distinction is worth stating because it is not obvious.

@@ -30,43 +30,12 @@ inherit qnx-sdp-component
 #
 # The nested lib/dll/pci directory is not on mkifs's search path, so those are
 # named by subpath.
-QNX_COMPONENT_FILES = "\
-    pci-server \
-    pci-connector \
-    pci-tool \
-    libpci.so \
-    pci/pci_hw-bcm2712-rpi5.so \
-    pci/pci_bkwd_compat.so \
-    pci/pci_strings.so \
-    pci/pci_server-buscfg-generic.so \
-    pci/pci_server-buscfg-hotplug.so \
-    pci/pci_server-buscfg2-generic.so \
-    pci/pci_server-buscfg2-hotplug.so \
-    pci/pci_server-enable_features.so \
-    pci/pci_server-event_handler.so \
-    pci/pci_server-namespace.so \
-    pci/pci_cap-0x01.so \
-    pci/pci_cap-0x04.so \
-    pci/pci_cap-0x05.so \
-    pci/pci_cap-0x07.so \
-    pci/pci_cap-0x09-ffffffff.so \
-    pci/pci_cap-0x0d.so \
-    pci/pci_cap-0x10.so \
-    pci/pci_cap-0x10-16c3abcd.so \
-    pci/pci_cap-0x10-19570400.so \
-    pci/pci_cap-0x11.so \
-    pci/pci_cap-0x11-ffffffff.so \
-    pci/pci_cap-0x12.so \
-    pci/pci_cap-0x13.so \
-    pci/pcie_xcap-0x0001.so \
-    pci/pcie_xcap-0x0003.so \
-    pci/pcie_xcap-0x000b-ffffffff.so \
-    pci/pcie_xcap-0x0015.so \
-    pci/pci_debug.so \
-    pci/pci_debug2.so \
-    pci/pci_slog.so \
-    pci/pci_slog2.so \
-"
+# Only the board's own host-bridge module. Everything generic -- the server,
+# the capability handlers, the namespace modules -- is qnx-pci, so a second
+# board is this file with a different hw module rather than a copy of 35 lines.
+QNX_COMPONENT_FILES = "pci/pci_hw-bcm2712-rpi5.so"
+
+DEPENDS += "qnx-pci"
 
 # pci-server reads these at startup. The .cfg carries the host bridge's PCIe gen
 # speed, which is board data the hw module cannot infer.
@@ -87,6 +56,10 @@ PCI_DEBUG_MODULE=pci_debug2.so\n\
 MAX_GEN_SPEED=${QNX_PCI_MAX_GEN_SPEED}\n\
 }\
 "
+
+# The vendor/device name table pci-tool prints. Under ${QNX_TARGET}/etc, so it
+# is on no search path and needs an absolute source.
+QNX_IFS_EXTRA_ENTRIES += "\n/etc/system/config/pci/pcidatabase.com-tab_delimited.txt=${QNX_TARGET}/etc/system/config/pci/pcidatabase.com-tab_delimited.txt"
 
 QNX_PCI_BUS_SCAN_LIMIT ?= "3"
 QNX_PCI_MAX_GEN_SPEED ?= "3"
