@@ -14,9 +14,8 @@ to meta-qnx to make this layer work, meta-qnx is not generic enough yet.
 | `bitbake qnx-host-disk` | Flashable SD card image: FAT boot partition (Pi firmware + IFS) and a QNX6 data partition (built by `qnx-host-data`). With meta-qnx-guest in the build, the guest lands on the data partition. |
 | `bitbake qnx-host-image` | Hypervisor host IFS for RPi5 — `qvm`, vdevs, PCI, board drivers, the GPU stack |
 | `bitbake rpi-gpio` | GPIO resource manager (CMake, own GitHub repo) |
-| `bitbake frame-router` | Shared-memory framebuffer bridge (`fb_host`/`fb_guest`/`fb_test`) |
 | `bitbake motor-controller` | SPI/ADC motor controller (the monorepo's `giga_spi_8adc`) |
-| `bitbake qnx-host-conf` | Screen display + wifi configuration and start scripts |
+| `bitbake qnx-host-conf` | Screen display configuration and its start script, plus the wifi credentials file |
 | `bitbake vdev-virtio-gpu` | Host-side virtio-gpu vdev, with `virglrenderer` and `libepoxy` (meson) beneath it |
 
 ## Where sources come from
@@ -88,7 +87,7 @@ on the data partition rather than inside the host IFS.
 1. **Nothing has booted.** Every check so far is static (`dumpifs`, `fdisk`, boot-header
    comparison). Flashing `qnx-host-disk.img` and watching serial is the highest-value next
    step.
-2. **Standalone repositories** for `frame-router`, `motor-controller` and `qnx-host-conf`
+2. **Standalone repositories** for `motor-controller` and `qnx-host-conf`
    (and `shm-chunker` in meta-qnx-guest). They build from the monorepo working tree via
    `QNX_PROJECT_SRC` and therefore have no sstate; each recipe records the one-line
    `QNX_SRC_REPO` change to make once its repo exists.
