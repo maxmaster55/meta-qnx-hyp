@@ -31,7 +31,9 @@ QNX_IFS_TEMPLATE = "${S}/qnx-host.build.in"
 # what makes "did I list all of them?" a question asked once in one file rather
 # than per image and answered on the board -- see qnx-sdp-component.bbclass.
 QNX_IFS_INSTALL = "qnx-base-runtime qnx-block qnx-io-sock \
-                   qnx-pci-rpi5 qnx-net-rpi5 qnx-storage-sdmmc-rpi5 \
+                   qnx-pci qnx-pci-rpi5 qnx-net-rpi5 qnx-storage-sdmmc-rpi5 \
+                   qnx-net-tools qnx-diag-tools qnx-fs-tools qnx-login \
+                   qnx-usb qnx-hid qnx-screen qnx-gfx-demos qnx-gfx-demos-rpi5 qnx-ssh \
                    packagegroup-qnx-hyp-common motor-controller qnx-host-conf \
                    libepoxy virglrenderer vdev-virtio-gpu"
 
@@ -71,6 +73,35 @@ QNX_CONSOLE_DEV = "/dev/ser10"
 QNX_HOST_GUEST_PEER ?= "/dev/qvm/guest_1/guest_to_host"
 QNX_HOST_GUEST_IP ?= "10.0.0.1"
 QNX_HOST_GUEST_NET ?= "10.0.0.0/24"
+
+# The Linux guest's peer, bound as vp1. Same shape, different system name --
+# it has to match `system` in linux.qvmconf (QNX_LINUX_GUEST_NAME) and the vdev
+# named guest_to_host in it.
+#
+# A different subnet from vp0 on purpose: both are point-to-point links to this
+# host, and putting them on one /24 would make the host's routing table
+# ambiguous about which interface reaches which guest.
+QNX_HOST_LINUX_PEER ?= "/dev/qvm/guest_2/guest_to_host"
+QNX_HOST_LINUX_IP ?= "10.0.1.1"
+QNX_HOST_LINUX_NET ?= "10.0.1.0/24"
+
+# ---------------------------------------------------------------------------
+# The board's own address on the LAN
+# ---------------------------------------------------------------------------
+# bridge0 carries the physical NIC and is how the board reaches the outside
+# world -- and how NAT for the guest networks gets anywhere, since pf.conf
+# translates to this interface's address.
+#
+# Static, not DHCP, matching the reference BSP: the board is the gateway for two
+# guest networks, and a lease that changes would silently break their routing.
+# The reference has dhcpcd commented out for the same reason.
+#
+# Creating the bridge without addressing it, which is the state this drifted
+# into, gives a board that boots clean, answers on neither address, and reports
+# nothing about it.
+QNX_HOST_BRIDGE_IP ?= "192.168.2.2"
+QNX_HOST_BRIDGE_MASK ?= "255.255.255.0"
+QNX_HOST_GATEWAY ?= "192.168.2.1"
 
 # ---------------------------------------------------------------------------
 # SD card and the data partition

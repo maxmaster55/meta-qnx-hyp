@@ -56,7 +56,20 @@
     gpio-rp1 set 32 op pd dh
     # -m vdevpeer-net is what makes guest networking possible at all: it is the
     # module that turns a guest's virtio-net vdev into an interface on this side.
-    io-sock -m phy -m fdt -d cgem -m pci -d em -d ix -d re -d igc -m vdevpeer-net
+    #
+    # -m usb and the four drivers after it are for USB ethernet adapters. io-sock
+    # loads a driver only if it was named on this line, so a USB NIC plugged in
+    # later is not discovered retroactively -- they are listed here for the same
+    # reason the PCI ones are, and cost nothing when no adapter is fitted.
+    #
+    # The wifi driver goes last, with its `-o config=` immediately before it --
+    # the order the SDP's own definition uses (__WIFIDRIVER__ in
+    # mkqnximage/extras/rasppi/rpi5). The config is what tells the driver which
+    # SDIO controller the radio is on; see /etc/qwdi_wifi.conf below.
+    #
+    # Optional in spirit but not in syntax: io-sock logs and continues if the
+    # driver is absent, so an SDP without the cypress packages still boots.
+    io-sock -m phy -m fdt -d cgem -m pci -d em -d ix -d re -d igc -m usb -d axe -d axge -d cdce -d smsc -m vdevpeer-net -o config=/etc/io-sock.conf -d qwdi_dhd_sdio-2_11-rpi5
 
     ############################################################################
     ## Guest networking. Creates one vdevpeer interface per guest and bridges
@@ -70,11 +83,55 @@
     pfctl -f /etc/pf.conf
     pfctl -e
 
+    # After pf, matching the reference. The gateway is on the bridge's subnet,
+    # so this needs bridge0 addressed -- which .vdev_net_start.sh above did.
+    route add default @QNX_HOST_GATEWAY@
+
     ############################################################################
     ## RAM disk offered to guests as a virtual block device.
     ############################################################################
     display_msg "Creating ram disk for guests ..."
     devb-ram ram capacity=262144 disk name=qvmdisk
+
+    display_msg "Starting SSH daemon ..."
+    /proc/boot/.ssh-server.sh &
+
+    ############################################################################
+    ## Remote debugging: qconn for Momentics and gdb. devc-pty first -- qconn
+    ## needs a pty to give a debug session a terminal, and starts without one
+    ## only to fail when the IDE connects.
+    ############################################################################
+    display_msg "Starting devc-pty manager ..."
+    devc-pty
+
+    display_msg "Starting qconn daemon ..."
+    qconn
+
+    ############################################################################
+    ## Graphics, and any board customisation that precedes it.
+    ##
+    ## Position and blocking are both load-bearing, and this is the order the
+    ## reference BSP boots in -- reproduced rather than improved on, because the
+    ## working board is the specification here.
+    ##
+    ## BEFORE the SD card and the data partition, deliberately. The data
+    ## partition is union-mounted on /, and it carries its own /scripts -- so
+    ## mounting it first puts a second directory in front of the IFS's own
+    ## /scripts, where host-graphics-start.sh lives, and makes the data
+    ## partition's board_startup.sh run at boot when in the reference it never
+    ## does (nothing is mounted yet, so the guard in customize_startup.sh finds
+    ## no such file). Graphics needs nothing from the disk; going first avoids
+    ## the whole question.
+    ##
+    ## NOT backgrounded. The script ends in a `waitfor /dev/screen`, so running
+    ## it in the foreground is what guarantees host Screen is up before anything
+    ## below this line -- above all before a guest is launched. vdev-virtio-gpu
+    ## gates its EGL context on the host's /dev/screen and the entire qvm process
+    ## exits if an EGL call runs before Screen exists, which is a guest that dies
+    ## at launch with nothing on the panel and no obvious cause.
+    ############################################################################
+    display_msg "Starting graphics ..."
+    /proc/boot/customize_startup.sh
 
     ############################################################################
     ## SD card. This is what makes the disk's second partition reachable: the
@@ -88,26 +145,55 @@
     display_msg "Starting SDMMC driver (/dev/sd0) ..."
     sh -c "devb-sdmmc-bcm2712 sdio addr=@QNX_HOST_SDMMC_ADDR@,irq=@QNX_HOST_SDMMC_IRQ@ disk name=sd > /dev/null 2>&1" &
 
+    ############################################################################
+    ## Board extras, each guarded by its own script so a board without the
+    ## hardware just prints nothing. Same split as the reference BSP, which also
+    ## runs these between starting the SD driver and mounting from it -- they
+    ## take long enough that the disk has usually enumerated by the time the
+    ## storage script starts polling for it.
+    ############################################################################
+    sh /proc/boot/usb_start.sh
+    sh /proc/boot/fan_start.sh
+
     display_msg "Mounting data partition ..."
     /proc/boot/.storage-server.sh
 
     ############################################################################
-    ## Graphics. Screen is the compositor; the script brings it up with the
-    ## repo-versioned display config and then starts the frame router.
-    ############################################################################
-    display_msg "Starting graphics ..."
-    ksh /scripts/host-graphics-start.sh &
-
-    ############################################################################
-    ## Wifi
+    ## Wifi association. The driver itself is already loaded -- it came up with
+    ## io-sock above, from the `-d qwdi_dhd_sdio-2_11-rpi5` on that line -- so
+    ## all that is left is to wait for its interface and hand it to the
+    ## supplicant. Backgrounded: association takes seconds and nothing below
+    ## depends on it.
     ############################################################################
     display_msg "Starting wifi ..."
-    ksh /scripts/wifi-start.sh &
+    /proc/boot/.wifi-start.sh &
 
     ############################################################################
     ## Applications, ordered by QNX_IFS_STARTUP_AFTER dependencies.
     ############################################################################
 @QNX_IFS_STARTUP@
+
+    ############################################################################
+    ## SPI. The gpio lines put the Pi 5's SPI0 pins into their alternate
+    ## function before the driver claims the bus.
+    ##
+    ## The config path is the SDP's standard location, which is where the
+    ## qnx-host-conf fragment writes it -- the reference BSP kept its copy on the
+    ## data partition at /system/etc/spi.conf instead, so a board carrying an old
+    ## data partition has the file in both places and this line picks the one in
+    ## the image.
+    ##
+    ## Note that guest-1's .qvmconf passes the same SPI0 register window straight
+    ## through to the guest. Both sides driving it at once is a hardware conflict,
+    ## not something either will report: run the host's spi-dwc or the guest's
+    ## SPI, not both. The reference project shipped it exactly this way.
+    ############################################################################
+    display_msg "Starting SPI driver ..."
+    gpio-rp1 set 7-8 a0 pu
+    gpio-rp1 set 9-11 a0 pd
+
+    spi-dwc -c /etc/system/config/spi/spi.conf
+    waitfor /dev/io-spi
 
     display_msg "Starting shell ..."
     reopen /dev/ser10
@@ -115,6 +201,62 @@
 }
 
 [uid=0 gid=0]
+
+################################################################################
+## Board customisation, then graphics -- the split the reference BSP uses, which
+## is what lets a board-specific step be added by editing a script on the data
+## partition instead of rebuilding the image.
+##
+## Neither call is backgrounded. host-graphics-start.sh ends in a
+## `waitfor /dev/screen`, and that wait is only worth anything if the caller of
+## this script is blocked on it -- see the startup script above.
+################################################################################
+[perms=0744] customize_startup.sh = {
+#!/bin/ksh
+
+# board_startup.sh lives on the data partition, so it only exists once that has
+# been mounted -- which is why this is guarded rather than assumed.
+if [ -e /scripts/board_startup.sh ]; then
+    echo "Starting board customize script ..."
+    ksh /scripts/board_startup.sh
+fi
+
+echo "Starting host graphics ..."
+ksh /scripts/host-graphics-start.sh
+}
+
+################################################################################
+## Fan control. gpio 45 is PWM1_CHAN3 on a Pi 5; fan-rpi5 publishes /dev/fan and
+## the value written is the duty cycle. Harmless on a board with no fan fitted:
+## the driver starts, waitfor times out, and boot continues.
+################################################################################
+[perms=0744] fan_start.sh = {
+#!/bin/sh
+
+echo "Starting fan control driver"
+
+gpio-rp1 set 45 a0 pd
+fan-rpi5
+waitfor /dev/fan 5
+echo 200 > /dev/fan
+}
+
+################################################################################
+## USB host controller. The two gpio lines put the RP1's USB pins into their
+## alternate function before the controller is started -- the addresses are the
+## board's two xHCI instances, taken from the reference BSP.
+################################################################################
+[perms=0744] usb_start.sh = {
+#!/bin/sh
+
+echo "Starting USB xHCI controller in the host mode (/dev/usb/*)..."
+
+gpio-rp1 set 42 a2 pn
+gpio-rp1 set 43 a2 pu
+
+io-usb-otg -v -d dwc3-xhci ioport=0x1f00200000,irq=0xbf,iosize=0x100000,bmstr=0x1000000000,ioport=0x1f00300000,irq=0xc4,iosize=0x100000,bmstr=0x1000000000
+waitfor /dev/usb/io-usb-otg 10
+}
 
 ################################################################################
 ## Guest networking setup.
@@ -140,6 +282,15 @@ vpctl vp0 peer=@QNX_HOST_GUEST_PEER@ bind=/dev/vdevpeers/vp0
 ifconfig vp0 @QNX_HOST_GUEST_IP@ netmask 255.255.255.0 up
 ifconfig vp0 -txcsum -txcsum6 -tso4 -tso6
 
+# --- Linux guest -----------------------------------------------------------
+# Second guest, second vdevpeer. Skipped harmlessly when there is no Linux
+# guest: qvm never created the peer, so vpctl fails and the interface stays
+# down without affecting vp0 or the bridge.
+ifconfig vp1 create
+vpctl vp1 peer=@QNX_HOST_LINUX_PEER@ bind=/dev/vdevpeers/vp1
+ifconfig vp1 @QNX_HOST_LINUX_IP@ netmask 255.255.255.0 up
+ifconfig vp1 -txcsum -txcsum6 -tso4 -tso6
+
 # --- physical NIC and bridge ----------------------------------------------
 # The bridge carries the external LAN only; vp0 stays out of it and is routed
 # instead, which is what the pf rules below are for.
@@ -147,6 +298,77 @@ if_up -p cgem0
 ifconfig cgem0 up
 sysctl -w net.link.bridge.inherit_mac=1
 ifconfig bridge0 create up addm cgem0
+
+# The board's own address on the LAN. Without it the bridge exists, forwards
+# nothing to this host, and NAT for the guest networks has no address to
+# translate to -- pf.conf rewrites guest traffic to (bridge0), which is empty.
+echo "machine bridge ip is @QNX_HOST_BRIDGE_IP@"
+echo "using @QNX_HOST_GATEWAY@ as gateway"
+ifconfig bridge0 @QNX_HOST_BRIDGE_IP@ netmask @QNX_HOST_BRIDGE_MASK@
+ifconfig bridge0 -txcsum -txcsum6 -tso4 -tso6
+}
+
+################################################################################
+## Wifi association.
+##
+## The driver is NOT mounted here -- io-sock loaded it on the boot line. This
+## only waits for the radio and starts the supplicant, which is the split the
+## SDP's own start_net.sh uses.
+##
+## if_up -p -r 20 is what makes this work at all. The radio does not exist the
+## instant io-sock returns: the driver has to push ~640KB of firmware over SDIO
+## first, which takes seconds. Reading `ifconfig -l` straight away -- which is
+## what the previous script did -- finds nothing and concludes the radio failed,
+## when it simply had not appeared yet.
+##
+## -Dqwdi is equally load-bearing. QWDI is the channel this driver speaks; with
+## the default backend the supplicant starts, talks to nothing, and never
+## associates.
+##
+## bcm0 is the interface name the driver publishes (__WIFIDEVICE__ in the SDP's
+## RPi5 definition). Named rather than discovered, because the discovery this
+## replaced could equally have picked cgem0 -- the wired NIC carrying ssh.
+##
+## No '}' and no '${...}' below: an inline mkifs block cannot carry either.
+################################################################################
+[perms=0744] .wifi-start.sh = {
+#!/bin/ksh
+
+WIFI_IF=bcm0
+WPA_CONF=/etc/wpa_supplicant.conf
+
+if grep -q CHANGEME $WPA_CONF 2>/dev/null; then
+    echo "wifi: $WPA_CONF still holds the placeholder SSID and passphrase."
+    echo "wifi: set QNX_HOST_CONF_WIFI in local.conf to a real one and rebuild."
+    exit 0
+fi
+
+echo "wifi: waiting for $WIFI_IF ..."
+if ! if_up -p -r 20 $WIFI_IF; then
+    echo "wifi: $WIFI_IF never appeared. The driver is loaded by io-sock on the"
+    echo "wifi: boot line, so check that it is in the image at all, and that"
+    echo "wifi: /etc/qwdi_wifi.conf names the right sdio_baseaddr and sdio_irq."
+    echo "wifi: The driver's own account of it:"
+    slog2info | tail -40
+    exit 1
+fi
+
+ifconfig $WIFI_IF up
+
+# The directory wpa_supplicant puts its control socket in, named by
+# ctrl_interface in the config. It lives on the data partition, so it is missing
+# on a board whose disk did not mount -- in which case the supplicant starts,
+# fails to create the socket, and wpa_cli reports "No such file or directory" as
+# though nothing were running.
+mkdir -p /var/run/wpa_supplicant
+
+echo "wifi: starting wpa_supplicant on $WIFI_IF ..."
+wpa_supplicant -Dqwdi -t -Z100 -i $WIFI_IF -c $WPA_CONF &
+
+echo "wifi: requesting a DHCP lease ..."
+dhcpcd -bqq $WIFI_IF
+
+echo "wifi: up -- check with 'wpa_cli status' and 'ifconfig bcm0'"
 }
 
 ################################################################################
@@ -156,9 +378,12 @@ ifconfig bridge0 create up addm cgem0
 [perms=0644] /etc/pf.conf = {
 ext_if = "bridge0"
 guest_net = "@QNX_HOST_GUEST_NET@"
+linux_net = "@QNX_HOST_LINUX_NET@"
 
 nat on $ext_if from $guest_net to any -> ($ext_if)
+nat on $ext_if from $linux_net to any -> ($ext_if)
 pass in quick on vp0 all
+pass in quick on vp1 all
 pass out quick on $ext_if all
 }
 
@@ -177,6 +402,58 @@ pass out quick on $ext_if all
 /bin/gpio-rp1=gpio-rp1
 /bin/msix-rp1=msix-rp1
 
+# The rest of what the BSP ships. Not needed to boot -- gpio-rp1 drives the RP1
+# on a Pi 5 -- but the reference image carries them and they are the tools for
+# poking at the board's other controllers by hand: the legacy BCM GPIO blocks,
+# the VideoCore mailbox, the fan, and SPI.
+/bin/gpio-bcm=gpio-bcm
+/bin/gpio-aon-bcm=gpio-aon-bcm
+/bin/mbox-bcm=mbox-bcm
+/sbin/fan-rpi5=fan-rpi5
+/sbin/spi-dwc=spi-dwc
+
+# The SPI bus description spi-dwc reads. Board data: base address, IRQ and input
+# clock are the Pi 5's SPI0. Copied from the reference build file.
+/etc/system/config/spi/spi.conf = {
+# See spi-template.conf or the SDP docs for the full field list.
+
+[globals]
+verbose=5
+
+[bus]
+busno=0
+name=spi0
+base=0x1f00050000
+# Guest irq is 44, host irq is 179 -- see the SPI pass-through in the guest's
+# .qvmconf, which maps one onto the other.
+irq=179
+input_clock=200000000
+bs=cs_max=1
+
+# At least one device, or spi-dwc brings the bus up and publishes nothing:
+# `waitfor /dev/io-spi` then times out with
+#
+#     Unable to access "/dev/io-spi" (2)
+#
+# which reads like a missing driver and is really a config with no [dev] in it.
+[dev]
+parent_busno=0
+devno=0
+name=dev0
+clock_rate=100000000
+cpha=1
+cpol=0
+bit_order=msb
+word_width=32
+idle_insert=1
+}
+
+# VideoCore tools. Not BSP binaries despite the name -- they are in the SDP's
+# usr/bin, and they are how you ask the firmware for clocks, temperature and
+# throttling state from the QNX side.
+/bin/vcgencmd=vcgencmd
+/bin/vcmailbox=vcmailbox
+
 ################################################################################
 ## The hypervisor itself, plus the virtual devices it offers to guests.
 ## All from $QNX_TARGET.
@@ -191,6 +468,13 @@ pass out quick on $ext_if all
 /lib/dll/vdev-virtio-entropy.so=vdev-virtio-entropy.so
 /lib/dll/vdev-pl011.so=vdev-pl011.so
 /lib/dll/vdev-progress.so=vdev-progress.so
+
+# Offered to guests that ask for them. None is used by the QNX or Linux guest
+# configured here, but a guest .qvmconf is data -- adding one should not mean
+# rebuilding the host image, so the vdevs the reference carries are carried.
+/lib/dll/vdev-ser8250.so=vdev-ser8250.so
+/lib/dll/vdev-smmu.so=vdev-smmu.so
+/lib/dll/vdev-wdt-sp805.so=vdev-wdt-sp805.so
 
 
 ################################################################################
@@ -212,6 +496,12 @@ pass out quick on $ext_if all
 ## Referenced by subpath (graphics/drm-rpi5/...) rather than bare name: mkifs
 ## searches lib/dll but not arbitrary nested directories.
 ################################################################################
+# The Screen runtime -- libscreen, libEGL, libGLESv2, the blitter modules -- now
+# comes from the qnx-screen component, which the guest installs too. Listing them
+# here as well is "Entry 'lib/libscrmem.so' redefined".
+#
+# What stays below is the part that is genuinely this board's: the drm-rpi5
+# driver tree, which no other image can use.
 [type=file uid=0 gid=0 perms=0555] /bin/drm-rpi5=drm-rpi5
 [type=file uid=0 gid=0 perms=0444] /lib/graphics/drm-rpi5/dri_gbm.so=dri_gbm.so
 [type=file uid=0 gid=0 perms=0444] /lib/graphics/drm-rpi5/EGL-mesa.so=graphics/drm-rpi5/EGL-mesa.so
@@ -223,55 +513,110 @@ pass out quick on $ext_if all
 [type=file uid=0 gid=0 perms=0444] /lib/graphics/drm-rpi5/v3d_dri.so=graphics/drm-rpi5/v3d_dri.so
 
 ################################################################################
-## Screen -- the QNX compositor the guests render through.
+## Screen itself -- the binary, its client libraries and the screencmd/screeninfo
+## tools -- comes from the qnx-screen component, which the guest installs too.
+##
+## It used to be listed here as well, at /bin/screen. mkifs does not treat that
+## as an error the way it does a redefined entry, because the component resolves
+## screen to /sbin/screen (which is where the SDP keeps it) and the two paths
+## differ: the image simply carried the same 640KB binary twice, and which one
+## ran depended on PATH order. One owner, one copy.
 ################################################################################
-/bin/screen=screen
-/bin/screencmd=screencmd
-/bin/screeninfo=screeninfo
-
-/lib/libscreen.so.1=libscreen.so.1
-/lib/libscrmem.so.1=libscrmem.so.1
-/lib/libmemobj.so.1=libmemobj.so.1
-/lib/libdrm.so.2=libdrm.so.2
-/lib/libWFD.so.1=libWFD.so.1
-/lib/libgbm.so.1=libgbm.so.1
-
-[type=link] /lib/libscreen.so=libscreen.so.1
-[type=link] /lib/libscrmem.so=libscrmem.so.1
-[type=link] /lib/libmemobj.so=libmemobj.so.1
-[type=link] /lib/libdrm.so=libdrm.so.2
-[type=link] /lib/libWFD.so=libWFD.so.1
-[type=link] /lib/libgbm.so=libgbm.so.1
-
-/lib/dll/screen-debug.so=screen-debug.so
-/lib/dll/screen-gles2blt.so=screen-gles2blt.so
-/lib/dll/screen-sw.so=screen-sw.so
-/lib/dll/screen-stdbuf.so=screen-stdbuf.so
-
 ################################################################################
-## EGL / GLES
+## Wifi -- CYW43455 over SDIO.
+##
+## Two SDP packages between them:
+##   target.driver.cypress_dhd_sdio*        the driver and the radio firmware
+##   target.net.wpa_supplicant_2.11.iosock  the supplicant and its tools
+##
+## The package ships every wpa binary with a -2.11 suffix; they are staged under
+## their plain names so scripts and muscle memory both work.
+##
+## Everything is [+optional] so the image still builds on an SDP without the
+## wifi packages -- the board just comes up without a radio.
 ################################################################################
-/lib/libEGL.so.1=libEGL.so.1
-/lib/libGLESv2.so.1=libGLESv2.so.1
-[type=link] /lib/libEGL.so=libEGL.so.1
-[type=link] /lib/libGLESv2.so=libGLESv2.so.1
-[type=link] /lib/libGLESv2.so.2=libGLESv2.so.1
+# The driver's real name. This used to say devnp-qwdi.so, which is the old
+# io-pkt naming and exists nowhere in a QNX 8 SDP. The only symptom was
+# "Warning: Host file 'devnp-qwdi.so' missing" scrolling past during do_mkifs
+# while the image built fine and the radio never appeared on the board.
+[+optional] /lib/dll/devs-qwdi_dhd_sdio-2_11-rpi5.so=devs-qwdi_dhd_sdio-2_11-rpi5.so
+[+optional] /usr/lib/libwpactrl-2.11.so=libwpactrl-2.11.so
 
-################################################################################
-## Wifi. The driver and wpa_supplicant are optional so the image still builds
-## on an SDP without them. dhcpcd comes from the shared networking fragment.
-################################################################################
-[+optional] /lib/dll/devnp-qwdi.so=devnp-qwdi.so
 [+optional] /usr/sbin/wpa_supplicant=wpa_supplicant-2.11
-[+optional] /usr/bin/wpa_cli=wpa_cli-2.11
+[+optional] /usr/sbin/wpa_cli=wpa_cli-2.11
+[+optional] /usr/sbin/wpa_passphrase=wpa_passphrase-2.11
+
+# Radio firmware for the CYW43455. Absolute sources: these live under
+# ${QNX_TARGET}/etc, which is on no mkifs search path, and they have to land at
+# /etc/firmware -- the SDP keeps them one directory deeper, in
+# bcm43455_firmware_pkg/.
+#
+# The three destinations must match the fw/nvram/clm_blob paths in
+# /etc/qwdi_wifi.conf below. Without them the driver loads, finds no firmware,
+# and the interface never appears.
+[+optional] /etc/firmware/brcmfmac43455-sdio.bin=${QNX_TARGET}/etc/firmware/bcm43455_firmware_pkg/brcmfmac43455-sdio.bin
+[+optional] /etc/firmware/brcmfmac43455-sdio.txt=${QNX_TARGET}/etc/firmware/bcm43455_firmware_pkg/brcmfmac43455-sdio.txt
+[+optional] /etc/firmware/brcmfmac43455-sdio.clm_blob=${QNX_TARGET}/etc/firmware/bcm43455_firmware_pkg/brcmfmac43455-sdio.clm_blob
+
+# The radio's tools, for interrogating it when association misbehaves. From the
+# dhd_utils package, which an SDP need not carry -- hence optional.
+[+optional] /usr/sbin/wl_sdio=wl_sdio
+[+optional] /usr/sbin/dhd_sdio=dhd_sdio
 
 ################################################################################
-## Remote access: ssh and the Momentics debug agent.
+## io-sock's configuration, read because the boot line passes
+## `-o config=/etc/io-sock.conf` immediately before the wifi driver.
+##
+## hw.dhdsdio.dev0 names the board variant to the driver. dev.qwdi_wifi.conf
+## points it at the file below -- the driver's built-in default is a different
+## path, so without this line it reads no configuration at all.
+##
+## Both taken from the SDP's own RPi5 definition, in
+## host/common/mkqnximage/extras/rasppi/rpi5/opt_scripts/rasppi5.
 ################################################################################
-[+optional uid=0 gid=0 perms=0755] /usr/sbin/sshd=sshd
-[+optional uid=0 gid=0 perms=0755] /usr/bin/ssh=ssh
-[+optional uid=0 gid=0 perms=0755] /usr/bin/scp=scp
-[+optional uid=0 gid=0 perms=0755] /usr/bin/ssh-keygen=ssh-keygen
+[perms=0644] /etc/io-sock.conf = {
+hw.dhdsdio.dev0="rpi5"
+dev.qwdi_wifi.conf="/etc/qwdi_wifi.conf"
+}
+
+################################################################################
+## The wifi driver's configuration.
+##
+## This is board data, which is why it lives here beside the SPI and SDMMC
+## addresses rather than in the qnx-host-conf repository with the display
+## configuration -- an image for a different board needs different values, and
+## nothing here is a preference anyone would want to edit.
+##
+## sdio_baseaddr and sdio_irq are the point. The radio sits on its OWN SDIO
+## controller -- 0x1001100000 / IRQ 306 -- which is NOT the one the SD card is
+## on (devb-sdmmc-bcm2712 takes 0x1000fff000 / IRQ 305 on the boot line above).
+## A configuration with only the firmware paths, which is what this file used to
+## be, leaves the driver with no idea where the hardware is: it attaches, io-sock
+## reports no error, and no interface ever appears. On the console that reads as
+##
+##     wifi: the driver attached but the radio did not come up
+##
+## and looks like a firmware problem, which it is not -- the firmware here is
+## byte-identical to the blobs QNX's own CTI build uses.
+##
+## Every value below is from the SDP's RPi5 definition, cited above.
+################################################################################
+[perms=0644] /etc/qwdi_wifi.conf = {
+fw=/etc/firmware/brcmfmac43455-sdio.bin
+nvram=/etc/firmware/brcmfmac43455-sdio.txt
+clm_blob=/etc/firmware/brcmfmac43455-sdio.clm_blob
+sdio_baseaddr=0x1001100000
+sdio_irq=306
+drv_supp=7
+key_delay=5
+sdio_verbose=0
+dhd_verbose=1
+qwdi_dbg_level=0
+}
+
+# ssh comes from the qnx-ssh component, which carries the daemon, the clients
+# AND the helpers sshd execs per connection (sshd-session, sftp-server). Listing
+# sshd here as well is "Entry 'usr/sbin/sshd' redefined".
 # qconn needs a pty, which devc-pty provides -- it is listed once, with the
 # base utilities below. mkifs treats a redefined entry as an error, not a
 # warning, so an entry belongs in exactly one place.
