@@ -1,0 +1,62 @@
+# Linux guest under the QNX hypervisor.
+#
+# Taken from the hypervisor project's linux-guest/linux.qvmconf. The kernel and
+# rootfs are an ordinary Yocto qemuarm64 build -- the "qemu arm" machine is what
+# makes it work here, because qvm presents the same virtio-mmio and pl011 layout
+# qemu's `virt` machine does, and the kernel already has drivers for all of it.
+#
+# There is deliberately no dtb line. qvm synthesises a device tree from the vdev
+# list below and hands it to the guest, which is how the kernel finds virtio-blk
+# at 0x1c0d0000 rather than at the address qemu would have used.
+
+system @QNX_LINUX_GUEST_NAME@
+
+ram @QNX_LINUX_GUEST_RAM_ADDR@,@QNX_LINUX_GUEST_RAM@
+
+cpu
+
+load image.bin
+
+# root=/dev/vda relies on the rootfs being a *raw* filesystem image rather than
+# a partitioned disk -- a Yocto .rootfs.ext4, not a .wic.
+cmdline "console=ttyAMA0,115200 earlycon=pl011,mmio32,0x1c090000 root=/dev/vda rw rootwait systemd.unit=multi-user.target ignore_loglevel loglevel=8"
+
+vdev gic
+        version 2
+
+vdev pl011
+        hostdev -
+        loc 0x1c090000
+        intr gic:37
+
+vdev virtio-blk
+        loc 0x1c0d0000
+        intr gic:41
+        hostdev fs.img
+        name rootfs
+
+################################################################################
+# Networking to the host, over the vdevpeer the host binds as vp1. The QNX guest
+# uses vp0; a third guest would be vp2, and needs its own stanza in the host's
+# .vdev_net_start.sh.
+################################################################################
+vdev virtio-net
+        loc 0x1c0c0000
+        intr gic:40
+        mac @QNX_LINUX_GUEST_MAC@
+        peer /dev/vdevpeers/vp1
+        peerfeats 0x000019c3
+        name guest_to_host
+
+################################################################################
+# Direct link to the QNX guest, bypassing the host. The other end is the
+# guest_to_guest vdev in qnx-guest.qvmconf; both names and the system name in
+# the path have to agree or qvm binds nothing and the interface comes up dead.
+################################################################################
+vdev virtio-net
+        loc 0x20040000
+        intr gic:43
+        mac @QNX_LINUX_GUEST_MAC2@
+        peer /dev/qvm/@QNX_QNX_GUEST_NAME@/guest_to_guest
+        peerfeats 0x0
+        name guest_to_guest
