@@ -60,6 +60,26 @@ QNX_IFS_LD_LIBRARY_PATH = "/proc/boot:/lib:/usr/lib:/lib/dll:/lib/dll/pci"
 # qnx-base.build.inc fragment, whose default is the guest's /dev/vcon1.
 QNX_CONSOLE_DEV = "/dev/ser10"
 
+# libwfdcfg.so.0 IS in this image, and the dependency closure cannot see that.
+#
+# libWFDrpi5.so has DT_NEEDED libwfdcfg.so.0, and the closure resolves sonames by
+# bare name across the mkifs search directories -- lib, lib/dll, usr/lib and so
+# on. This one lives in usr/lib/graphics/drm-rpi5/, a nested driver directory
+# that is on no search path, so the closure reports it missing and warns that
+# "anything linking them will fail at startup with ELIBACC".
+#
+# It will not. The build file names the whole drm-rpi5 tree explicitly, including
+# libwfdcfg-rpi5.so -- which is a symlink to libwfdcfg.so.0, and [+keeplinked]
+# brings the target along with it. The image has
+#
+#     lib/graphics/drm-rpi5/libwfdcfg-rpi5.so -> libwfdcfg.so.0
+#     lib/graphics/drm-rpi5/libwfdcfg.so.0
+#
+# and Screen dlopens it from that directory by the path in its own config, never
+# through the library search path. Excluding it silences a warning that is wrong,
+# rather than papering over one that is right.
+QNX_IFS_DEP_EXCLUDE = "libwfdcfg.so.0"
+
 # ---------------------------------------------------------------------------
 # Guest networking
 # ---------------------------------------------------------------------------

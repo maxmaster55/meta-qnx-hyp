@@ -400,7 +400,8 @@ pass out quick on $ext_if all
 /sbin/i2c-dwc-rpi5=i2c-dwc-rpi5
 /sbin/devc-serpl011-rpi5=devc-serpl011-rpi5
 /bin/gpio-rp1=gpio-rp1
-/bin/msix-rp1=msix-rp1
+# /sbin, which is where the reference has it. gpio-rp1 above is /bin in both.
+/sbin/msix-rp1=msix-rp1
 
 # The rest of what the BSP ships. Not needed to boot -- gpio-rp1 drives the RP1
 # on a Pi 5 -- but the reference image carries them and they are the tools for
@@ -617,10 +618,16 @@ qwdi_dbg_level=0
 # ssh comes from the qnx-ssh component, which carries the daemon, the clients
 # AND the helpers sshd execs per connection (sshd-session, sftp-server). Listing
 # sshd here as well is "Entry 'usr/sbin/sshd' redefined".
-# qconn needs a pty, which devc-pty provides -- it is listed once, with the
-# base utilities below. mkifs treats a redefined entry as an error, not a
-# warning, so an entry belongs in exactly one place.
-[+optional] /usr/bin/qconn=qconn
+#
+# qconn is not listed here either, for a subtler version of the same reason. The
+# qnx-diag-tools component provides it, resolved to /usr/sbin/qconn -- where the
+# SDP keeps it, and where the reference image has it. This file used to add
+# /usr/bin/qconn as well: a DIFFERENT path, so mkifs saw no redefinition and said
+# nothing, and the image simply carried the binary twice with PATH order deciding
+# which ran. The same trap that had /bin/screen and /sbin/screen both present.
+#
+# qconn needs a pty, which devc-pty provides -- listed once, with the base
+# utilities below.
 
 ################################################################################
 ## Base filesystem layout and utilities -- shared with the guest image.

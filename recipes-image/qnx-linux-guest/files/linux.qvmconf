@@ -21,9 +21,13 @@ load image.bin
 # a partitioned disk -- a Yocto .rootfs.ext4, not a .wic.
 cmdline "console=ttyAMA0,115200 earlycon=pl011,mmio32,0x1c090000 root=/dev/vda rw rootwait systemd.unit=multi-user.target ignore_loglevel loglevel=8"
 
-vdev gic
-        version 2
-
+# Guest interrupt controller. GICv2, because the board is GICv2 and Linux's
+# gic-v3 driver needs CPU-interface system registers that qvm cannot provide
+# here. The two `set` lines supply the host GICV/GICH addresses that this
+# board's startup does not publish; without them qvm rejects `version 2`.
+# QNX_LINUX_GUEST_GIC_VERSION, QNX_HOST_PADDR_GICV and QNX_HOST_PADDR_GICH in
+# qnx-linux-guest_1.0.bb carry the full story and the addresses.
+@QNX_LINUX_GUEST_GIC@
 vdev pl011
         hostdev -
         loc 0x1c090000

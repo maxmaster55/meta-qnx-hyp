@@ -22,6 +22,20 @@ do_compile() {
 		MESON_CROSS=${QNX_MESON_CROSS}
 }
 
+# /lib/dll, which is where the reference host image puts it, rather than the
+# /lib the stage layout would imply. Both are on LD_LIBRARY_PATH -- this is about
+# the image matching the one it was modelled on.
+#
+# Two names, not three. The harvesting pass emits a record for the real file and
+# one for the unversioned symlink, and skips the intermediate libepoxy.so.0
+# because that name IS the soname -- a link from a name to itself. mkifs then
+# stores the payload under the soname, which is why the image ends up with
+# lib/dll/libepoxy.so.0 even though the record names libepoxy.so.0.0.0.
+#
+# A QNX_IFS_DEST for the intermediate name matches no record and warns.
+QNX_IFS_DEST[libepoxy.so.0.0.0] = "/lib/dll/libepoxy.so.0.0.0"
+QNX_IFS_DEST[libepoxy.so] = "/lib/dll/libepoxy.so"
+
 do_install() {
 	install -d ${D}${QNX_STAGE_LIBDIR} ${D}${QNX_STAGE_INCLUDEDIR}/epoxy
 

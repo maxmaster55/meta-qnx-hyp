@@ -70,6 +70,14 @@ do_compile() {
 		MESON_CROSS=${QNX_MESON_CROSS}
 }
 
+# /lib/dll, matching the reference host image.
+#
+# Two names, not three -- see the fuller explanation on the same override in
+# libepoxy. The intermediate libvirglrenderer.so.1 is the soname, gets no record
+# of its own, and is the name mkifs stores the payload under.
+QNX_IFS_DEST[libvirglrenderer.so.1.11.0] = "/lib/dll/libvirglrenderer.so.1.11.0"
+QNX_IFS_DEST[libvirglrenderer.so] = "/lib/dll/libvirglrenderer.so"
+
 do_install() {
 	install -d ${D}${QNX_STAGE_LIBDIR} ${D}${QNX_STAGE_INCLUDEDIR}
 
