@@ -54,52 +54,53 @@ QNX_LINUX_GUEST_MAC2 ?= "52:54:00:00:02:02"
 # ---------------------------------------------------------------------------
 # Guest interrupt controller
 # ---------------------------------------------------------------------------
-# Empty, which emits no `vdev gic` stanza and leaves qvm at its default of
-# version 3. That is not a preference: 3 is the only value this qvm accepts.
+# GICv2, because the board is GICv2. QNX's documentation is explicit that the
+# default is 3 and that 2 "must be specified if the underlying hardware uses
+# GICv2", and the RPi5 startup publishes gicd/gicc and reports GICv2.
 #
-# The template arrived carrying `vdev gic / version 2`, copied from the
-# vdev-virtio-gpu upstream example, and qvm refuses it:
+# Set this to "2" in local.conf. It is empty here because whether it works
+# depends on the SDP, not on the board:
 #
-#     [linux.qvmconf:34] Unsupported GIC version: 2
+#   Hypervisor 8.0 (hypervisor.core 3.0.0.00465, qvm "hypervisor_be-800_B465")
+#   rejects it outright --
 #
-# QNX's published documentation says the option takes 2 or 3, and that 2 "must
-# be specified if the underlying hardware uses GICv2" -- which describes this
-# board, whose startup publishes gicd/gicc and reports GICv2. All of that is
-# true and none of it matters. Disassembling vdgic_control in this SDP's qvm
-# (hypervisor.core 3.0.0.00465, "hypervisor_be-800_B465") gives:
+#       [linux.qvmconf:34] Unsupported GIC version: 2
 #
-#     bl   qvm_parse_num          ; parse the version value
-#     ldr  x2, [sp, #200]
-#     cmp  x2, #0x3               ; compare against 3
-#     b.ne 1c274                  ; anything else -> "Unsupported GIC version"
-#     str  w2, [x25, #11680]      ; only 3 is ever stored
+#   Disassembling vdgic_control shows a literal comparison with no reference to
+#   the host GIC at all:
 #
-# A literal comparison against 3, with no reference to the host GIC at all. This
-# build implements GICv3 guests only, whatever the documentation says.
+#       cmp  x2, #0x3
+#       b.ne <"Unsupported GIC version">
 #
-# Two dead ends recorded so nobody repeats them:
+#   Hypervisor 8.0.4 Update 1 (hypervisor.core 3.4.0.00023, qvm
+#   "hypervisor_br-qhs8.0.4_be-qos80x_B23") accepts both:
 #
-#   - host-paddr-gicv / host-paddr-gich. The host publishes no "gicv" or "gich"
-#     asinfo entry (confirmed with `pidin syspage=asinfo`: gicd at
-#     0x107fff9000 and gicc at 0x107fffa000, nothing else), and qvm documents
-#     those variables for exactly that gap. Supplying them changes nothing --
-#     the version check never consults them. They also cannot be set before the
-#     VM exists, because `system` must be the first option specified.
+#       sub  x0, x2, #0x2
+#       cmp  x0, #0x1
+#       b.hi <"Unsupported GIC version">        ; passes for 2 and 3
 #
-#   - the hypervisor project's configuration. Its startup-bcm2712-rpi5 is
-#     byte-identical to this one (md5 93ad3951...), same arguments, same
-#     hypervisor package. Its linux.qvmconf would fail here identically.
+# Leaving the stanza out is not a workaround. qvm then defaults to a GICv3 at
+# the ARM foundation-model addresses, and on a GICv2 host it can only offer the
+# memory-mapped interface ("GICv3: using memory-mapped interface, full software
+# emulation not supported"). Linux's gic-v3 driver requires the CPU
+# system-register interface, so the guest dies bringing it up:
 #
-# Where this leaves a Linux guest on this board: nowhere good. qvm will only
-# emulate a GICv3, and on a GICv2 host it does so through the memory-mapped
-# interface ("GICv3: using memory-mapped interface, full software emulation not
-# supported"). Linux's gic-v3 driver requires the CPU system-register
-# interface, so it dies in gic_cpu_sys_reg_init on `MRS x0, ICC_SRE_EL1`
-# (0xd538cca0) with an undefined instruction. QNX guests cope with the
-# memory-mapped interface, which is why guest-1 boots and this does not.
+#     GICv3: CPU0: found redistributor 0 region 0:0x000000002f100000
+#     Internal error: Oops - Undefined instruction
+#     pc : gic_cpu_sys_reg_init+0x5c/0x2b8
 #
-# Nothing in this recipe can fix that -- it is a property of qvm and the board.
-# Set to 3 to state the default explicitly; there is no other accepted value.
+# 0xd538cca0 is `MRS x0, ICC_SRE_EL1`. QNX guests cope with the memory-mapped
+# interface, which is why guest-1 boots either way and this one does not.
+#
+# Two things that look like causes and are not. host-paddr-gicv/gich: the host
+# publishes no "gicv" or "gich" asinfo entry, and qvm documents those variables
+# for exactly that gap -- but the version check never consults them, and they
+# cannot be set before `system`, which must be the first option. And the
+# hypervisor project's configuration: its startup-bcm2712-rpi5 is byte-identical
+# to this one (md5 93ad3951...), same arguments, same packages.
+#
+# See docs/sdp.md in meta-qnx for how to install a hypervisor 8.0.4 SDP -- the
+# package set is not a free choice, and getting it wrong empties the SDP.
 QNX_LINUX_GUEST_GIC_VERSION ?= ""
 
 do_install[vardeps] += "QNX_LINUX_GUEST_DEPLOY QNX_LINUX_GUEST_KERNEL QNX_LINUX_GUEST_ROOTFS"

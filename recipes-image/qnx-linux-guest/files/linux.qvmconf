@@ -21,12 +21,13 @@ load image.bin
 # a partitioned disk -- a Yocto .rootfs.ext4, not a .wic.
 cmdline "console=ttyAMA0,115200 earlycon=pl011,mmio32,0x1c090000 root=/dev/vda rw rootwait systemd.unit=multi-user.target ignore_loglevel loglevel=8"
 
-# Guest interrupt controller. Normally absent, which leaves qvm at version 3 --
-# the only version this qvm accepts, whatever its documentation says. On a GICv2
-# host that GICv3 is memory-mapped, and Linux's gic-v3 driver needs the CPU
-# system-register interface, so this guest panics in gic_cpu_sys_reg_init.
-# QNX_LINUX_GUEST_GIC_VERSION in qnx-linux-guest_1.0.bb has the disassembly and
-# the dead ends.
+# Guest interrupt controller. This board is GICv2 and Linux needs to be told so:
+# left out, qvm offers a memory-mapped GICv3 that Linux's gic-v3 driver cannot
+# drive, and the guest panics in gic_cpu_sys_reg_init on ICC_SRE_EL1.
+#
+# Requires hypervisor 8.0.4 or newer -- the 8.0 qvm rejects `version 2` outright.
+# Set QNX_LINUX_GUEST_GIC_VERSION = "2" in local.conf; that recipe carries the
+# disassembly of both versions and the SDP this needs.
 @QNX_LINUX_GUEST_GIC@
 vdev pl011
         hostdev -
