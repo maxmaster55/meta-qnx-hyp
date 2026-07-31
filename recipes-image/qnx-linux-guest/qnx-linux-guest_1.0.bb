@@ -54,117 +54,54 @@ QNX_LINUX_GUEST_MAC2 ?= "52:54:00:00:02:02"
 # ---------------------------------------------------------------------------
 # Guest interrupt controller
 # ---------------------------------------------------------------------------
-# Empty, which emits no `vdev gic` stanza at all. qvm builds a GIC for the guest
-# regardless -- every other vdev here refers to it as `intr gic:NN` and would
-# have nothing to attach to otherwise.
+# Empty, which emits no `vdev gic` stanza and leaves qvm at its default of
+# version 3. That is not a preference: 3 is the only value this qvm accepts.
 #
-# This was not always empty. The template arrived carrying
+# The template arrived carrying `vdev gic / version 2`, copied from the
+# vdev-virtio-gpu upstream example, and qvm refuses it:
 #
-#     vdev gic
-#             version 2
+#     [linux.qvmconf:34] Unsupported GIC version: 2
 #
-# and this SDP's qvm (hypervisor.core 3.0.0.00465, "hypervisor_be-800_B465")
-# refuses to parse it:
+# QNX's published documentation says the option takes 2 or 3, and that 2 "must
+# be specified if the underlying hardware uses GICv2" -- which describes this
+# board, whose startup publishes gicd/gicc and reports GICv2. All of that is
+# true and none of it matters. Disassembling vdgic_control in this SDP's qvm
+# (hypervisor.core 3.0.0.00465, "hypervisor_be-800_B465") gives:
 #
-#     [linux.qvmconf:25] Unsupported GIC version: 2
+#     bl   qvm_parse_num          ; parse the version value
+#     ldr  x2, [sp, #200]
+#     cmp  x2, #0x3               ; compare against 3
+#     b.ne 1c274                  ; anything else -> "Unsupported GIC version"
+#     str  w2, [x25, #11680]      ; only 3 is ever stored
 #
-# Those two lines came from the vdev-virtio-gpu upstream example
-# (src/gpu/vdev-virtio-gpu/example/host/guest.qvmconf in the hypervisor project),
-# which targets a different board -- not from anything RPi5-specific. Note that
-# the value is not wrong about the hardware: the RPi5 startup reports a GICv2
-# host ("GICv2: routing SPIs to gic cpu %d"). qvm rejects being told explicitly
-# all the same.
+# A literal comparison against 3, with no reference to the host GIC at all. This
+# build implements GICv3 guests only, whatever the documentation says.
 #
-# The evidence for leaving it out is the QNX guest. qnx-guest.qvmconf declares
-# eleven vdevs and no `vdev gic` among them, and that guest boots on this board.
+# Two dead ends recorded so nobody repeats them:
 #
-# Set to 2 or 3 to emit the stanza again -- worth trying if a later SDP wants it
-# stated, or while narrowing down a GIC problem:
+#   - host-paddr-gicv / host-paddr-gich. The host publishes no "gicv" or "gich"
+#     asinfo entry (confirmed with `pidin syspage=asinfo`: gicd at
+#     0x107fff9000 and gicc at 0x107fffa000, nothing else), and qvm documents
+#     those variables for exactly that gap. Supplying them changes nothing --
+#     the version check never consults them. They also cannot be set before the
+#     VM exists, because `system` must be the first option specified.
 #
-#     QNX_LINUX_GUEST_GIC_VERSION = "3"
+#   - the hypervisor project's configuration. Its startup-bcm2712-rpi5 is
+#     byte-identical to this one (md5 93ad3951...), same arguments, same
+#     hypervisor package. Its linux.qvmconf would fail here identically.
 #
-# ...which is where this ended up. Leaving it out is *not* right for Linux: with
-# no stanza qvm defaults to a GICv3 at the ARM foundation-model addresses, and
-# the guest kernel dies bringing it up --
+# Where this leaves a Linux guest on this board: nowhere good. qvm will only
+# emulate a GICv3, and on a GICv2 host it does so through the memory-mapped
+# interface ("GICv3: using memory-mapped interface, full software emulation not
+# supported"). Linux's gic-v3 driver requires the CPU system-register
+# interface, so it dies in gic_cpu_sys_reg_init on `MRS x0, ICC_SRE_EL1`
+# (0xd538cca0) with an undefined instruction. QNX guests cope with the
+# memory-mapped interface, which is why guest-1 boots and this does not.
 #
-#     GICv3: CPU0: found redistributor 0 region 0:0x000000002f100000
-#     Internal error: Oops - Undefined instruction
-#     pc : gic_cpu_sys_reg_init+0x5c/0x2b8
-#
-# The faulting instruction (0xd538cca0) is `MRS x0, ICC_SRE_EL1`, the GICv3 CPU
-# interface system register. Linux's gic-v3 driver requires it; this board has
-# GICv2 hardware and qvm's GICv3 emulation is memory-mapped only ("GICv3: using
-# memory-mapped interface, full software emulation not supported"). QNX guests
-# cope with that, which is why guest-1 boots with no stanza at all. Linux does
-# not.
-#
-# QNX's own documentation is explicit: the default is 3, "but if the underlying
-# hardware uses GICv2 then 2 must be specified". The RPi5 startup reports GICv2.
-QNX_LINUX_GUEST_GIC_VERSION ?= "2"
+# Nothing in this recipe can fix that -- it is a property of qvm and the board.
+# Set to 3 to state the default explicitly; there is no other accepted value.
+QNX_LINUX_GUEST_GIC_VERSION ?= ""
 
-# ---------------------------------------------------------------------------
-# Host GIC virtualisation registers
-# ---------------------------------------------------------------------------
-# Asking for `version 2` alone is not enough on this board:
-#
-#     [linux.qvmconf:25] Unsupported GIC version: 2
-#
-# To present a GICv2 to a guest, qvm needs the host's GIC virtual CPU interface
-# (GICV) and hypervisor control (GICH) registers. It finds them through the
-# syspage asinfo entries named "gicv" and "gich", and startup-bcm2712-rpi5
-# publishes neither -- it emits "gicd" and "gicc" and stops there.
-#
-# THIS IS A HYPOTHESIS, NOT A CONFIRMED FIX. It has not been tested on hardware.
-# What is established: the startup binary carries no "gicv"/"gich" string, and
-# qvm documents these two variables for precisely this case ("Needed on boards
-# where the Startup bootstrap program does not automatically supply the address
-# via syspage"). What is *not* established is that this is why version 2 is
-# rejected. Note in particular that the Pi 4 startup does not publish them
-# either, so this cannot be the whole story.
-#
-# What was ruled out: any difference from the hypervisor project. Its
-# startup-bcm2712-rpi5 is byte-identical to this one (md5 93ad3951...), its
-# startup arguments are the same, and it pins the same hypervisor package. Its
-# linux.qvmconf would fail here identically. The Linux guest that worked there
-# was almost certainly the Pi *4* target -- that project carries both
-# rpi4-hypervisor.build and rpi5-hypervisor.build, and the only board in its
-# startup source tree is boards/bcm2711, a Pi 4.
-#
-# The addresses are the Pi 5's own, read out of
-# bcm2712-rpi-5-b.dtb: the arm,gic-400 node lists GICD/GICC/GICH/GICV at bus
-# 0x7fff9000/0x7fffa000/0x7fffc000/0x7fffe000, and the soc `ranges` maps bus 0
-# to physical 0x10_0000_0000.
-#
-# Both empty skips the lines, for a board whose startup does publish them.
-QNX_HOST_PADDR_GICV ?= "0x107fffe000"
-QNX_HOST_PADDR_GICH ?= "0x107fffc000"
-
-# Absolute paths outside the recipe are invisible to task signatures, so
-# without help a rebuild of the Linux side would not rebuild this. Two
-# mechanisms, and both are needed -- they catch different changes:
-#
-#   vardeps         catches a change to *which* files are read: a different
-#                   deploy directory, or different image names.
-#
-#   file-checksums  catches a change to the files *themselves*, and is the one
-#                   that matters in practice. The two names below are the
-#                   unversioned symlinks Yocto keeps pointing at its newest
-#                   build, so rebuilding the Linux image leaves every variable
-#                   here identical and moves only the content. With vardeps
-#                   alone bitbake computes the same signature, restores
-#                   do_install from sstate, and the host disk goes out carrying
-#                   the *previous* rootfs -- no error, no warning, and an image
-#                   that looks freshly built.
-#
-# Cost is not what it appears. bitbake stats each path (following the symlink to
-# the timestamped file behind it) and re-hashes only when mtime or size has
-# moved, caching the result in local_file_checksum_cache.dat -- so the 750MB
-# rootfs is read once per Linux rebuild, not once per parse.
-#
-# The checksums propagate downstream on their own: qnx-host-data DEPENDS on this
-# recipe, so a changed do_install signature changes its populate_sysroot, which
-# changes qnx-host-data's tasks, which changes the disk. Nothing else needs
-# annotating.
 do_install[vardeps] += "QNX_LINUX_GUEST_DEPLOY QNX_LINUX_GUEST_KERNEL QNX_LINUX_GUEST_ROOTFS"
 do_install[file-checksums] += "\
     ${QNX_LINUX_GUEST_DEPLOY}/${QNX_LINUX_GUEST_KERNEL}:True \
@@ -191,20 +128,11 @@ do_install() {
 		${D}${QNX_LINUX_GUEST_STAGE}/fs.img
 
 	# The GIC stanza is a block rather than a value: empty when no version is
-	# configured, several lines when one is. Built here because sed substitutes
-	# a string and this has to be able to substitute nothing at all.
-	#
-	# The `set` lines come first: they are VM-wide configuration variables and
-	# have to be in effect before the vdev that depends on them is parsed.
+	# configured, two lines when one is. Built here because sed substitutes a
+	# string and this has to be able to substitute nothing at all.
 	gic_block=''
 	if [ -n "${QNX_LINUX_GUEST_GIC_VERSION}" ]; then
-		if [ -n "${QNX_HOST_PADDR_GICV}" ]; then
-			gic_block="${gic_block}set host-paddr-gicv ${QNX_HOST_PADDR_GICV}\n"
-		fi
-		if [ -n "${QNX_HOST_PADDR_GICH}" ]; then
-			gic_block="${gic_block}set host-paddr-gich ${QNX_HOST_PADDR_GICH}\n"
-		fi
-		gic_block="${gic_block}\nvdev gic\n        version ${QNX_LINUX_GUEST_GIC_VERSION}\n"
+		gic_block="vdev gic\n        version ${QNX_LINUX_GUEST_GIC_VERSION}\n"
 	fi
 
 	# Same @MARKER@ convention the .build templates use, expanded here rather

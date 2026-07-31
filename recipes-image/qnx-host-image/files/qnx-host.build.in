@@ -372,6 +372,22 @@ echo "wifi: up -- check with 'wpa_cli status' and 'ifconfig bcm0'"
 }
 
 ################################################################################
+## Name resolution. Without this the board routes fine and resolves nothing:
+## `ping 8.8.8.8` replies while `ping www.google.com` fails with "UDP connect:
+## No route to host", which reads as a routing fault and is not one.
+##
+## Shipped rather than left to dhcpcd. Its 20-resolv.conf hook is what writes
+## this file normally, and dhcpcd only runs for wifi here -- the wired path is
+## static on purpose, because the board is the gateway for two guest networks.
+##
+## / is a union mount, so a resolv.conf written on the data partition at runtime
+## overlays this one. That makes this a working default rather than a policy.
+################################################################################
+[perms=0644] /etc/resolv.conf = {
+@QNX_HOST_RESOLV@
+}
+
+################################################################################
 ## Firewall: NAT the guest network out through the bridge, so a guest can reach
 ## the outside world with the host as its gateway.
 ################################################################################

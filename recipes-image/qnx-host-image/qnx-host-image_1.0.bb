@@ -123,6 +123,37 @@ QNX_HOST_BRIDGE_IP ?= "192.168.2.2"
 QNX_HOST_BRIDGE_MASK ?= "255.255.255.0"
 QNX_HOST_GATEWAY ?= "192.168.2.1"
 
+# Name servers, written to /etc/resolv.conf.
+#
+# Needed because the wired path is static. dhcpcd's 20-resolv.conf hook is what
+# normally writes this file, and dhcpcd only runs for wifi -- so a board on the
+# wired NIC came up with a working route and no resolver at all:
+#
+#     # ping 8.8.8.8            -> replies
+#     # ping www.google.com     -> ping: UDP connect: No route to host
+#
+# which reads as a routing fault and is not one. Nothing else in the image
+# supplies the file: the SDP contributes /etc/hosts, services, protocols and
+# netconfig, and stops there.
+#
+# The gateway first, since on this network it is the router and answers DNS;
+# 8.8.8.8 behind it so that name resolution still works on a network whose
+# gateway does not. Space separated, one `nameserver` line each.
+QNX_HOST_DNS ?= "${QNX_HOST_GATEWAY} 8.8.8.8"
+
+# One `nameserver` line per entry, which is what resolv.conf wants. chr(10)
+# rather than a backslash escape so there is no question of which parser eats it.
+QNX_HOST_RESOLV = "${@chr(10).join('nameserver %s' % s for s in (d.getVar('QNX_HOST_DNS') or '').split())}"
+
+# Template markers are expanded at task time from a file, so bitbake cannot see
+# which variables a build file depends on -- changing one would leave the image
+# unrebuilt. The class names its own; these are this image's.
+#
+# Only the new ones are listed rather than every address in the template: adding
+# the rest is right, but it changes the signature of an image that is currently
+# known-good on the board, and that is a separate change from fixing DNS.
+do_generate_buildfile[vardeps] += "QNX_HOST_DNS QNX_HOST_RESOLV"
+
 # ---------------------------------------------------------------------------
 # SD card and the data partition
 # ---------------------------------------------------------------------------
