@@ -16,6 +16,15 @@
 [type=dir] /scripts
 [type=dir] /guests
 
+# Where sshd keeps its generated host keys -- QNX_SSH_KEYDIR in meta-qnx's
+# qnx-ssh component, which waits for this directory before generating them.
+#
+# It has to be here rather than in the IFS, and that is the entire point: an IFS
+# is read-only and RAM-resident, so keys written there are new on every boot and
+# ssh reports the board's identity as changed every single time. This directory
+# is the only writable thing that outlives a reboot.
+[type=dir] /var/ssh
+
 ################################################################################
 ## Contributed by other layers -- guest images and their configuration land
 ## here. Empty unless something sets QNX_ROOTFS_EXTRA.
