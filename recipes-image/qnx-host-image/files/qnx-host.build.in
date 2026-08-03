@@ -195,6 +195,40 @@
     # spi-dwc -c /etc/system/config/spi/spi.conf
     # waitfor /dev/io-spi
 
+    ############################################################################
+    ## Management agent.
+    ##
+    ## Last, and after the data partition is mounted: hms reads /guests to
+    ## discover what it can start, and that directory only exists once
+    ## .storage-server.sh has mounted the disk. Started earlier it finds an empty
+    ## /guests and manages nothing.
+    ##
+    ## Backgrounded because it does not exit -- it holds an MQTT connection open
+    ## and serves commands for as long as the board is up.
+    ##
+    ## It needs /root/.ssh/id_ed25519 to reach a guest. That key comes from
+    ## QNX_SSH_IDENTITY in local.conf and is not in any layer; without it hms
+    ## still starts and still answers the broker, and every guest operation
+    ## fails at the ssh. See meta-qnx/docs/ssh.md.
+    ############################################################################
+    display_msg "Starting hypervisor management system ..."
+    hms &
+
+    ############################################################################
+    ## WiFi provisioning.
+    ##
+    ## This takes bcm0 down to join the phone's hotspot when it cannot reach the
+    ## configured network -- so on a board being administered over WiFi it will
+    ## drop that link. The wired bridge0 above is unaffected, which is what makes
+    ## running it by default survivable: ssh to 192.168.2.2 stays up either way.
+    ##
+    ## After .wifi-start.sh, deliberately. That one associates with the network
+    ## qnx-host-conf configured; this one only has something to do when that
+    ## failed, and its own TRY_REAL step re-reads the same configuration first.
+    ############################################################################
+    display_msg "Starting wifi provisioning service ..."
+    wifi_service &
+
     display_msg "Starting shell ..."
     reopen /dev/ser10
     [+session] ksh &

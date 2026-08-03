@@ -44,21 +44,24 @@ QNX_IFS_INSTALL = "qnx-base-runtime qnx-block qnx-io-sock \
 # an image with the binary and not the library gets a process that dies at
 # startup with ELIBACC rather than anything that names the missing library.
 #
-# It is installed, not started. It reaches a broker over the network and can
-# stop and start guests, so when it runs is a decision rather than a default.
-# It also needs two private ssh keys that no layer supplies -- see the recipe.
+# Both are started by the boot script now. hms goes after the data partition is
+# mounted, since it reads /guests to discover what it can manage and that
+# directory does not exist before then. It still needs the private key from
+# QNX_SSH_IDENTITY to reach a guest -- without it hms runs, answers the broker,
+# and fails at the ssh on every guest operation.
 #
 # wifi-service is here rather than in the guest because bcm0 is this board's own
 # radio: the host owns it, the driver comes up on the io-sock boot line above,
 # and its firmware is the SDP's bcm43455_firmware_pkg. A guest under qvm has
 # virtio interfaces and no radio to configure.
 #
-# Installing it does not start it -- nothing in the startup script runs it, and
-# that is deliberate. .wifi-start.sh already associates with the network
-# qnx-host-conf configures; wifi_service takes bcm0 down to join the phone's
-# provisioning hotspot instead, which would drop the link the board is being
-# administered over. It is a tool to run from the console when the configured
-# network is not available.
+# It is started after .wifi-start.sh, which associates with the network
+# qnx-host-conf configured -- wifi_service only has something to do when that
+# failed, and its own first step re-reads the same configuration.
+#
+# It does take bcm0 down to join the phone's hotspot when it gets that far, so a
+# board administered over WiFi loses that link. The wired bridge0 is unaffected,
+# which is what makes running it by default survivable.
 
 # ---------------------------------------------------------------------------
 # Boot configuration -- the host, not a guest
