@@ -16,6 +16,13 @@
 [type=dir] /scripts
 [type=dir] /guests
 
+# Where wifi-service writes the two wpa_supplicant configurations it generates:
+# the provisioning access point's, and the real network's once a phone has sent
+# credentials. It writes both itself, so nothing is placed here -- but the
+# directory has to exist and be writable, which the IFS cannot offer. Without it
+# both fopen calls fail silently and the service never associates.
+[type=dir] /etc/wifi
+
 # Where sshd keeps its generated host keys -- QNX_SSH_KEYDIR in meta-qnx's
 # qnx-ssh component, which waits for this directory before generating them.
 #
