@@ -218,3 +218,16 @@ QNX_IFS_EXTRA_ROOTS = "${QNX_BSP_ROOT}"
 
 do_configure[noexec] = "1"
 do_compile[noexec] = "1"
+
+# ---------------------------------------------------------------------------
+# The identity hms logs into guests with
+# ---------------------------------------------------------------------------
+# The private half of the pair the guests authorise. It is a secret, so it is
+# not in this layer: QNX_SSH_IDENTITY is a path on the build host, set in
+# local.conf beside QNX_SDP_ROOT, and qnx-ssh installs whatever it points at as
+# /root/.ssh/id_ed25519 at 0600.
+#
+# Left unset the image still builds and hms still runs -- it simply cannot log
+# into a guest, and reports that per connection rather than at build time. The
+# reference build file does the same thing from a path that is gitignored there.
+require conf/hms-ssh-key.inc
