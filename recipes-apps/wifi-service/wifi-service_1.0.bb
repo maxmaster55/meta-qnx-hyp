@@ -21,18 +21,7 @@ inherit qnx-sdp qnx-src
 #     QNX_SRC_REV = "<commit sha>"
 QNX_SRC_REPO = "git://git@github.com/PM-Maestro-ITI-GP-Org/wifi-service.git;protocol=ssh;branch=main"
 
-# PLACEHOLDER -- replace with the repository's first commit.
-#
-# It is pinned rather than left at the ${AUTOREV} default for a reason that
-# matters before the repository exists: AUTOREV makes bitbake `git ls-remote`
-# the repository at *parse* time, on every invocation. Against a repository that
-# is not there yet that is a parse error, and a parse error in one recipe halts
-# parsing for the whole tree -- so an unfetchable recipe sitting in a layer would
-# stop `bitbake qnx-host-disk` from building anything at all.
-#
-# With a fixed revision nothing is fetched until this recipe is actually built,
-# and the failure is then this recipe's alone and says exactly what is wrong.
-QNX_SRC_REV = "0000000000000000000000000000000000000000"
+QNX_SRC_REV = "f042874764e4d940a977b9d9b9e69bac2da87b66"
 
 # This is a HOST recipe, not a guest one, and that is not a packaging
 # preference. bcm0 is the Pi's own CYW43455 radio: the host owns it, the driver
