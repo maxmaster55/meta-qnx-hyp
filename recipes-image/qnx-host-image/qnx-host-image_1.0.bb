@@ -35,9 +35,19 @@ QNX_IFS_INSTALL = "qnx-base-runtime qnx-block qnx-io-sock \
                    qnx-net-tools qnx-diag-tools qnx-fs-tools qnx-login \
                    qnx-usb qnx-hid qnx-screen qnx-gfx-demos qnx-gfx-demos-rpi5 qnx-ssh \
                    packagegroup-qnx-hyp-common motor-data-producer qnx-host-conf \
-                   wifi-service \
+                   wifi-service hms mosquitto \
                    libepoxy virglrenderer vdev-virtio-gpu"
 
+# hms manages the guests -- it reads /guests, execs qvm and takes commands over
+# MQTT -- so it belongs on the host by definition; inside a guest there would be
+# nothing to manage. mosquitto comes with it: hms links libmosquitto.so.1, and
+# an image with the binary and not the library gets a process that dies at
+# startup with ELIBACC rather than anything that names the missing library.
+#
+# It is installed, not started. It reaches a broker over the network and can
+# stop and start guests, so when it runs is a decision rather than a default.
+# It also needs two private ssh keys that no layer supplies -- see the recipe.
+#
 # wifi-service is here rather than in the guest because bcm0 is this board's own
 # radio: the host owns it, the driver comes up on the io-sock boot line above,
 # and its firmware is the SDP's bcm43455_firmware_pkg. A guest under qvm has
