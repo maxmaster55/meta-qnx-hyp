@@ -21,7 +21,7 @@ inherit qnx-sdp qnx-src
 #     QNX_SRC_REV = "<commit sha>"
 QNX_SRC_REPO = "git://git@github.com/PM-Maestro-ITI-GP-Org/wifi-service.git;protocol=ssh;branch=main"
 
-QNX_SRC_REV = "832e6763bc150d4e1b6a02e43eae8d647c590aa2"
+QNX_SRC_REV = "3b0359d0b689dfcc53e90e990f6f09ac741268ea"
 
 # This is a HOST recipe, not a guest one, and that is not a packaging
 # preference. bcm0 is the Pi's own CYW43455 radio: the host owns it, the driver
@@ -97,10 +97,10 @@ do_install() {
 #
 # So an image CAN pre-provision a board by placing a real config on the data
 # partition: wifi-service then associates on the first pass and the phone is
-# never needed. Nothing here does that, deliberately -- it would mean a WiFi
-# password in this layer, and qnx-host-conf already has the escape hatch for
-# exactly that kind of secret. Note the copy in the monorepo's wifi_conf/
-# carries a real network's PSK in plaintext.
+# never needed. Nothing here does that, deliberately -- a working config holds a
+# WiFi password, and qnx-host-conf already has the escape hatch for exactly that
+# kind of secret rather than committing one to a layer. The copies in the
+# monorepo's wifi_conf/ are placeholders, not a real network.
 #
 # What it does need is for /etc/wifi to exist and be WRITABLE. On the host that
 # rules out the IFS, which is read-only -- so the directory comes from the data
