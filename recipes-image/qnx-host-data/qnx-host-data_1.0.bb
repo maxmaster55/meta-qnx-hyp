@@ -15,6 +15,12 @@ S = "${WORKDIR}"
 QNX_ROOTFS_NAME = "qnx-host-data"
 QNX_ROOTFS_TEMPLATE = "${S}/qnx-host-data.build.in"
 
+# wifi-service, for its two wpa_supplicant configurations only -- the binary
+# itself goes in the IFS with the rest of the host image. They are here because
+# the service rewrites both at runtime and an IFS is read-only, and this is what
+# puts them in this recipe's sysroot for the template to name.
+QNX_ROOTFS_INSTALL = "wifi-service"
+
 QNX_ROOTFS_SIZE = "512M"
 QNX_ROOTFS_MIN = "64M"
 QNX_ROOTFS_INODES = "50000"

@@ -16,12 +16,23 @@
 [type=dir] /scripts
 [type=dir] /guests
 
-# Where wifi-service writes the two wpa_supplicant configurations it generates:
-# the provisioning access point's, and the real network's once a phone has sent
-# credentials. It writes both itself, so nothing is placed here -- but the
-# directory has to exist and be writable, which the IFS cannot offer. Without it
-# both fopen calls fail silently and the service never associates.
+# wifi-service's two wpa_supplicant configurations, and the directory it
+# rewrites them in.
+#
+# Here rather than in the IFS because the service opens both with fopen(...,"w")
+# at runtime, and an IFS is read-only. Without a writable /etc/wifi both calls
+# fail silently -- write_default_conf just returns on a NULL FILE* -- and the
+# service cycles between states forever without ever associating.
+#
+# Only one of the two files changes what happens. wpa_supplicant_default.conf is
+# regenerated before every use, so shipping it makes the provisioning SSID
+# readable on the board and nothing more. wpa_supplicant_real.conf IS read if
+# present: the service hands an existing one straight to wpa_supplicant, so the
+# board tries that network first and reaches the phone only after the 25s
+# timeout. Delete it from the image to go straight to provisioning.
 [type=dir] /etc/wifi
+[perms=0600] /etc/wifi/wpa_supplicant_default.conf = @QNX_ROOTFS_SYSROOT@/wifi-service/wpa_supplicant_default.conf
+[perms=0600] /etc/wifi/wpa_supplicant_real.conf = @QNX_ROOTFS_SYSROOT@/wifi-service/wpa_supplicant_real.conf
 
 # Where sshd keeps its generated host keys -- QNX_SSH_KEYDIR in meta-qnx's
 # qnx-ssh component, which waits for this directory before generating them.

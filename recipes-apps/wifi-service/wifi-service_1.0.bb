@@ -21,8 +21,6 @@ inherit qnx-sdp qnx-src
 #     QNX_SRC_REV = "<commit sha>"
 QNX_SRC_REPO = "git://git@github.com/PM-Maestro-ITI-GP-Org/wifi-service.git;protocol=ssh;branch=main"
 
-QNX_SRC_REV = "3b0359d0b689dfcc53e90e990f6f09ac741268ea"
-
 # This is a HOST recipe, not a guest one, and that is not a packaging
 # preference. bcm0 is the Pi's own CYW43455 radio: the host owns it, the driver
 # is loaded on the host's io-sock boot line, and its firmware comes from the
@@ -47,7 +45,21 @@ do_compile() {
 do_install() {
 	install -d ${D}${QNX_STAGE_BINDIR}
 	install -m 0755 ${S}/wifi_service ${D}${QNX_STAGE_BINDIR}/wifi_service
+
+	# The two wpa_supplicant configurations, under the names the service looks
+	# for. Staged only -- they are placed on the data partition by
+	# qnx-host-data, not into the IFS, because the service rewrites both of
+	# them at runtime and an IFS is read-only.
+	install -d ${D}${QNX_STAGE_DIR}/wifi-service
+	install -m 0600 ${S}/wifi_conf/wpa_supplicant_default.conf \
+		${D}${QNX_STAGE_DIR}/wifi-service/
+	install -m 0600 ${S}/wifi_conf/wpa_supplicant_real.conf \
+		${D}${QNX_STAGE_DIR}/wifi-service/
 }
+
+# The binary is harvested automatically -- it is in the processor tree's bin,
+# which mkifs searches. The configurations are staged outside that tree on
+# purpose, so the same pass leaves them alone and only qnx-host-data places them.
 
 # Not started at boot, and not by accident. The host image already associates
 # with a configured network from .wifi-start.sh, using the wpa_supplicant

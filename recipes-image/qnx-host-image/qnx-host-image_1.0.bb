@@ -34,8 +34,21 @@ QNX_IFS_INSTALL = "qnx-base-runtime qnx-block qnx-io-sock \
                    qnx-pci qnx-pci-rpi5 qnx-net-rpi5 qnx-storage-sdmmc-rpi5 \
                    qnx-net-tools qnx-diag-tools qnx-fs-tools qnx-login \
                    qnx-usb qnx-hid qnx-screen qnx-gfx-demos qnx-gfx-demos-rpi5 qnx-ssh \
-                   packagegroup-qnx-hyp-common motor-controller qnx-host-conf \
+                   packagegroup-qnx-hyp-common motor-data-producer qnx-host-conf \
+                   wifi-service \
                    libepoxy virglrenderer vdev-virtio-gpu"
+
+# wifi-service is here rather than in the guest because bcm0 is this board's own
+# radio: the host owns it, the driver comes up on the io-sock boot line above,
+# and its firmware is the SDP's bcm43455_firmware_pkg. A guest under qvm has
+# virtio interfaces and no radio to configure.
+#
+# Installing it does not start it -- nothing in the startup script runs it, and
+# that is deliberate. .wifi-start.sh already associates with the network
+# qnx-host-conf configures; wifi_service takes bcm0 down to join the phone's
+# provisioning hotspot instead, which would drop the link the board is being
+# administered over. It is a tool to run from the console when the configured
+# network is not available.
 
 # ---------------------------------------------------------------------------
 # Boot configuration -- the host, not a guest
