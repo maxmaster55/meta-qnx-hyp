@@ -231,3 +231,14 @@ do_compile[noexec] = "1"
 # into a guest, and reports that per connection rather than at build time. The
 # reference build file does the same thing from a path that is gitignored there.
 require conf/hms-ssh-key.inc
+
+# hms asks for the same key by two different names, so it is installed once and
+# linked:
+#
+#     ssh_key=/root/.ssh/id_ed25519      to reach the guests
+#     ota_server_key=/.ssh/id_ed25519    to reach the OTA server
+#
+# /.ssh is ~/.ssh here -- qnx-base.build.inc sets HOME=/ in /etc/profile, even
+# though /etc/passwd gives root /root. A link rather than a second copy: it is
+# one key, and two files that can drift apart is what this must not become.
+QNX_SSH_IDENTITY_LINKS = "/.ssh/id_ed25519"

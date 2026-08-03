@@ -4,6 +4,8 @@ Project layer for the QNX hypervisor / Raspberry Pi 5 system. Contains **policy 
 which applications exist and what the images look like. Every QNX mechanism comes from
 [meta-qnx](../meta-qnx).
 
+[What every application is](docs/applications.md) · [ssh keys](../meta-qnx/docs/ssh.md)
+
 It also serves as meta-qnx's genericity test. If something board-specific has to be added
 to meta-qnx to make this layer work, meta-qnx is not generic enough yet.
 
@@ -14,7 +16,9 @@ to meta-qnx to make this layer work, meta-qnx is not generic enough yet.
 | `bitbake qnx-host-disk` | Flashable SD card image: FAT boot partition (Pi firmware + IFS) and a QNX6 data partition (built by `qnx-host-data`). With meta-qnx-guest in the build, the guest lands on the data partition. |
 | `bitbake qnx-host-image` | Hypervisor host IFS for RPi5 — `qvm`, vdevs, PCI, board drivers, the GPU stack |
 | `bitbake rpi-gpio` | GPIO resource manager (CMake, own GitHub repo) |
-| `bitbake motor-controller` | SPI/ADC motor controller (the monorepo's `giga_spi_8adc`) |
+| `bitbake motor-data-producer` | SPI/ADC motor control, publishing to shared memory. Was `motor-controller`; renamed upstream and now CMake. |
+| `bitbake hms` | Hypervisor Management System: guest lifecycle and OTA over MQTT |
+| `bitbake wifi-service` | WiFi provisioning via a phone hotspot |
 | `bitbake qnx-host-conf` | Screen display configuration and its start script, plus the wifi credentials file |
 | `bitbake vdev-virtio-gpu` | Host-side virtio-gpu vdev, with `virglrenderer` and `libepoxy` (meson) beneath it |
 
