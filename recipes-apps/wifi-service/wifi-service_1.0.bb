@@ -1,9 +1,10 @@
-SUMMARY = "WiFi provisioning service: a config access point and a TCP config port"
-DESCRIPTION = "Brings the board up on its own access point so a phone can hand \
-it credentials for the real network. It serves DHCP itself on UDP/67 rather \
-than pulling in dnsmasq, and listens on TCP 8888 for a {\"ssid\",\"password\"} \
-document -- at which point it writes a new wpa_supplicant configuration and \
-re-associates with that network."
+SUMMARY = "Gets WiFi credentials onto a board with no keyboard, using a phone"
+DESCRIPTION = "A board with no screen has no way to be told a WiFi password. \
+This joins a hotspot the phone is running, under a name and password compiled \
+in on both sides, connects back to the phone and asks it for the real network's \
+credentials -- then writes a wpa_supplicant configuration from the answer and \
+associates with that network instead. It is a WiFi client throughout: it never \
+becomes an access point."
 LICENSE = "CLOSED"
 
 inherit qnx-sdp qnx-src
@@ -66,25 +67,43 @@ do_install() {
 # which would drop the link the board is being administered over.
 #
 # It is a provisioning tool -- run it from the console on a board whose network
-# is not yet configured, or whose configured network is not present:
+# is not yet configured, or whose configured network has moved:
 #
 #     wifi_service
 #
-# then connect a phone to the config access point and send the credentials to
-# port 8888.
+# then start a hotspot on the phone named QNX_wifi with the password 123456789,
+# and have the companion app listening on TCP 9999. Both the name and the
+# password are compiled in (DEFAULT_SSID/DEFAULT_PASS), so both ends have to
+# agree and neither can be changed without a rebuild. That is also a
+# well-known password on an open-by-design network -- it is only up for the
+# seconds it takes to hand over the real credentials, but it is up.
+#
+# The state machine, because the direction of every connection here is the
+# opposite of what the source tree's README describes:
+#
+#   TRY_REAL      wpa_supplicant -D qwdi with wpa_supplicant_real.conf if it
+#                 exists; 25s to associate. Success lights an LED on GPIO 17.
+#   TRY_DEFAULT   no real config, or it failed -- write the default one and
+#                 join the PHONE's hotspot, as a client; 15s.
+#   ON_DEFAULT    dhcpcd -b bcm0, take the phone's address from the gateway,
+#                 connect OUT to it on TCP 9999, send {"type":"rpi_ready"},
+#                 read one line of {"ssid","password"}, write
+#                 wpa_supplicant_real.conf, and go back to TRY_REAL.
+#
+# Neither of those is what the README says. It describes hostapd, an access
+# point called QNX_Config, a built-in DHCP server on UDP/67 and a listener on
+# TCP 8888. The code contains no hostapd, no bind/listen/accept at all, and
+# runs dhcpcd -- a DHCP *client*. Read the code, not the README.
 #
 # It ships no configuration, and that is correct rather than an omission: it
-# writes both wpa_supplicant configurations itself, with fopen(..., "w") --
-# /etc/wifi/wpa_supplicant_default.conf for the provisioning AP and
-# /etc/wifi/wpa_supplicant_real.conf from what the phone sends. The wifi_conf/
-# directory next to it in the monorepo is sample output, not input.
+# writes both wpa_supplicant configurations itself with fopen(..., "w"). The
+# wifi_conf/ directory next to it in the monorepo is sample output, not input.
 #
 # What it does need is for /etc/wifi to exist and be WRITABLE. On the host that
 # rules out the IFS, which is read-only -- so the directory comes from the data
 # partition, created by qnx-host-data.build.in for exactly this. Without it both
-# fopen calls fail silently (write_default_conf returns on a NULL FILE*) and the
-# service runs, accepts a connection and never associates.
+# fopen calls fail silently (write_default_conf just returns on a NULL FILE*)
+# and the service cycles between states forever without ever associating.
 #
 # It drives wpa_supplicant -D qwdi, which is in the SDP and is the same driver
-# .wifi-start.sh uses. The README in the source tree describes a hostapd-based
-# design; the code does not use hostapd at all.
+# .wifi-start.sh uses.
