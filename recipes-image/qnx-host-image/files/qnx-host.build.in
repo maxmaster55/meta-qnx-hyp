@@ -188,12 +188,12 @@
     ## not something either will report: run the host's spi-dwc or the guest's
     ## SPI, not both. The reference project shipped it exactly this way.
     ############################################################################
-    display_msg "Starting SPI driver ..."
-    gpio-rp1 set 7-8 a0 pu
-    gpio-rp1 set 9-11 a0 pd
+    display_msg "[!] SPI driver will be started on guest"
+    # gpio-rp1 set 7-8 a0 pu
+    # gpio-rp1 set 9-11 a0 pd
 
-    spi-dwc -c /etc/system/config/spi/spi.conf
-    waitfor /dev/io-spi
+    # spi-dwc -c /etc/system/config/spi/spi.conf
+    # waitfor /dev/io-spi
 
     display_msg "Starting shell ..."
     reopen /dev/ser10
