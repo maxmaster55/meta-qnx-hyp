@@ -44,6 +44,19 @@
 [type=dir] /var/ssh
 
 ################################################################################
+## The guests' host keys, pre-accepted.
+##
+## Generated at build time by ssh-hostkeys and placed here so the host already
+## knows each guest before it has ever connected. Without it every host-to-guest
+## ssh either asks a question nobody is there to answer, or -- as hms does
+## today -- passes StrictHostKeyChecking=no and verifies nothing at all.
+##
+## ssh_config points UserKnownHostsFile here, so it is also where entries
+## learned at runtime accumulate.
+################################################################################
+/var/ssh/known_hosts = @QNX_ROOTFS_SYSROOT@/ssh-hostkeys/known_hosts
+
+################################################################################
 ## Contributed by other layers -- guest images and their configuration land
 ## here. Empty unless something sets QNX_ROOTFS_EXTRA.
 ################################################################################
