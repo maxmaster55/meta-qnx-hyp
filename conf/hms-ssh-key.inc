@@ -10,15 +10,28 @@
 # what it is for -- and it means a guest image can authorise hms without
 # depending on hms or on anything outside its own layer.
 #
-# The private half is deliberately absent, and is not in the monorepo this came
-# from either: that build file reads it from a path that is gitignored. Point
-# QNX_SSH_IDENTITY at it in local.conf, next to QNX_SDP_ROOT:
+# The private half is never in this layer. It is pointed at from local.conf:
 #
 #     QNX_SSH_IDENTITY = "/path/to/hms_ssh_key"
 #
 # Without it the host image still builds and hms still starts -- it just cannot
 # log into any guest, and says so per connection rather than at build time.
-QNX_HMS_PUBKEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ63lkUzvugd3TnG6SQDUD4QYZH9iU5c+HihwiLP9D79 hms@hypervisor"
+#
+# This is NOT the key the reference project uses. That pair's private half
+# exists only inside its built images (ifs-rpi5-hyp.bin, part_qnx_data.img,
+# disk.img) -- the source path its build file reads is gitignored, so the
+# monorepo carries the .pub and nothing else. Rather than dig a key out of a
+# binary, this pair is generated locally.
+#
+# Regenerating it means changing three things together, or hms reaches one guest
+# and not the other:
+#
+#   1. QNX_SSH_IDENTITY in local.conf          the private key
+#   2. QNX_HMS_PUBKEY below                    the QNX guest
+#   3. HMS_PUBKEY in meta-bmo's hms-ssh-key    the Linux guest
+#
+# and the OTA server's own authorized_keys, which no build here controls.
+QNX_HMS_PUBKEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINjet1l4AgueqR+EnUmlXw2yQcSckVrqIFQJ9RWLsd9y hms@hypervisor"
 
 # The second key the reference guest-1 authorises, alongside hms's.
 #
