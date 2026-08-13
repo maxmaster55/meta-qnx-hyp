@@ -56,6 +56,29 @@ do_install() {
 	install -d ${D}${QNX_STAGE_DIR}/motor-data-producer
 	install -m 0644 ${S}/config.json ${D}${QNX_STAGE_DIR}/motor-data-producer/
 
+	# spi_clock_hz is the value that actually reaches the hardware: open_spi()
+	# pushes it through DCMD_SPI_SET_CONFIG at startup, on top of whatever
+	# spi.conf set at boot. Upstream ships 15 MHz.
+	#
+	# 21 MHz measured substantially better on this board, one variable at a
+	# time, with everything else held fixed:
+	#
+	#   15 MHz -> 74 ok/s, 27 bad/s     21 MHz -> 98 ok/s, 3 bad/s
+	#
+	# out of the 100 blocks/s the STM32 produces, crc 0 in both. The STM32 emits
+	# a block every 10 ms and a transfer costs ~2.7x its wire time here, so at
+	# 15 MHz (8.2 ms) there is almost no margin and at 21 MHz (7.2 ms) there is.
+	# Going slower is actively worse -- 8 MHz gives 36 ok/s.
+	#
+	# Capped at 21 MHz rather than higher: SPI2 sits on APB1 at 42 MHz and the
+	# F401 specifies slave mode to fPCLK/2. Faster measured no better anyway,
+	# transfer time floors around 7.1 ms on driver overhead.
+	#
+	# Patched here rather than upstream because it is a property of this board's
+	# bus, not of the application.
+	sed -i -e 's/"spi_clock_hz": *[0-9]*/"spi_clock_hz": 21000000/' \
+	       ${D}${QNX_STAGE_DIR}/motor-data-producer/config.json
+
 	# Headers for motor_ai_client and motor_recorder, which compile against
 	# them. Sysroot only -- they are a build-time contract and have no business
 	# in an image.
