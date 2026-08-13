@@ -1,0 +1,325 @@
+From 87bdfaba18dafdb0514b43947703319a31b169d7 Mon Sep 17 00:00:00 2001
+From: maxmaster <yousseflkashef000@gmail.com>
+Date: Thu, 13 Aug 2026 15:05:08 +0300
+Subject: [PATCH] Build a real QNX mode word, stop sleeping before every read,
+ count honestly
+
+Three fixes to the SPI read loop, all found chasing ~12 lost blocks/s out
+of the 100/s the STM32 produces.
+
+1. spi_cfg_t.mode is a bitfield, not an SPI mode number. <hw/io-spi.h>
+   puts the word width in the low 8 bits and CPHA/CPOL/bit-order/
+   idle-insert in flags above it. open_spi passed pi->spi_mode raw --
+   validated 0..3 by config.c, so in practice 0 -- which asked the driver
+   for a zero-bit word, LSB first. Meanwhile spi_word_width, spi_cpha and
+   spi_idle_insert were only ever written into spi.conf, which this
+   devctl then overrode. The two configuration paths contradicted each
+   other. Build the word from those same fields so they agree, and log
+   what was asked for.
+
+2. dataready_wait slept before sampling the line. The STM32 re-arms
+   inside its TxRxCplt, so data-ready is already high within ~50 us of
+   the previous transfer ending -- the sleep was pure loss on nearly
+   every iteration, and TimerTimeout rounds up to the 1 ms tick, so a
+   nominal 200 us wait measured 930 us average and 2.7 ms worst case.
+   Against a 10 ms block period that was the difference between finishing
+   inside the window and losing the block. Sample first, sleep only when
+   the line is genuinely low, and hold a 150 us settling gap so a stale
+   high cannot be read as a fresh frame.
+
+3. The counters hid the problem they existed to report. Validation ran
+   four independent tests, so one byte-shifted frame bumped magic, ver
+   and size together and looked like three faults. And every rejected
+   frame zeroed have_last, wiping the sequence baseline -- so the gap
+   that frame created was never counted. That is why drops read ~1/s
+   while ~12 blocks/s were going missing. Chain the tests, keep the
+   baseline, and print per-second rates next to the totals: a cumulative
+   counter that took a burst early in a run sits at a large frozen number
+   afterwards and reads as an ongoing fault.
+
+Also removes a stale comment describing a probe mode that no longer
+exists; it was missing its closing delimiter and tripped -Wcomment.
+
+Compiles clean under qcc -Vgcc_ntoaarch64le -Wall -Wextra.
+---
+ motor_controller.c | 189 +++++++++++++++++++++++++++++++++++----------
+ 1 file changed, 147 insertions(+), 42 deletions(-)
+
+diff --git a/motor_controller.c b/motor_controller.c
+index 9dcbbab..ccb89c1 100644
+--- a/motor_controller.c
++++ b/motor_controller.c
+@@ -154,15 +154,55 @@ typedef struct {
+     bool configured;
+ } spi_link_t;
+ 
++/* QNX's spi_cfg_t.mode is a BITFIELD, not an SPI mode number. From
++ * <hw/io-spi.h>: the low 8 bits are the word width in bits, and CPHA / CPOL /
++ * bit-order / idle-insert are flags above it. Passing pi->spi_mode raw (0..3,
++ * as config.c validates it) therefore asked the driver for a ZERO-BIT word,
++ * LSB-first -- and left the word width, cpha and idle_insert that config.json
++ * carries applied only to spi.conf, which DCMD_SPI_SET_CONFIG then overrode
++ * with nonsense. The two configuration paths were contradicting each other.
++ *
++ * Build the word from the same fields spi_apply_conf() writes into spi.conf so
++ * the file and the runtime devctl finally agree.
++ *
++ * spi_mode keeps its conventional meaning -- bit 1 is CPOL, bit 0 is CPHA.
++ * spi_cpha predates it and still forces CPHA=1 when set; config.json carries
++ * both and they have always agreed. */
++static uint32_t spi_mode_word(const pi_config_t *pi)
++{
++    uint32_t m = (uint32_t)pi->spi_word_width & SPI_MODE_WORD_WIDTH_MASK;
++
++    m |= (pi->spi_cpha || (pi->spi_mode & 1)) ? SPI_MODE_CPHA_1 : SPI_MODE_CPHA_0;
++    m |= (pi->spi_mode & 2)                   ? SPI_MODE_CPOL_1 : SPI_MODE_CPOL_0;
++
++    /* The STM32 slave is hard-wired MSB-first (SPI_FIRSTBIT_MSB in
++     * motor_send.c) and no config field selects it -- there is only one
++     * correct answer, so it is not made configurable. */
++    m |= SPI_MODE_BODER_MSB;
++
++    if (pi->spi_idle_insert) m |= SPI_MODE_IDLE_INSERT;
++
++    return m;
++}
++
+ static int open_spi(spi_link_t *s, const pi_config_t *pi)
+ {
+-    if (rpi_spi_configure_device(pi->spi_bus, pi->spi_dev, pi->spi_mode,
++    const uint32_t mode = spi_mode_word(pi);
++
++    if (rpi_spi_configure_device(pi->spi_bus, pi->spi_dev, mode,
+                                  pi->spi_clock_hz) != SPI_SUCCESS) {
+-        fprintf(stderr, "[ctrl] rpi_spi_configure_device(bus=%d dev=%d) failed\n",
+-                pi->spi_bus, pi->spi_dev);
++        fprintf(stderr, "[ctrl] rpi_spi_configure_device(bus=%d dev=%d "
++                        "mode=0x%05x clock=%u) failed\n",
++                pi->spi_bus, pi->spi_dev, (unsigned)mode, pi->spi_clock_hz);
+         s->configured = false;
+         return -1;
+     }
++    fprintf(stderr, "[ctrl] SPI configured: mode=0x%05x (width=%d cpha=%d "
++                    "cpol=%d msb idle_insert=%d) clock=%u Hz\n",
++            (unsigned)mode, pi->spi_word_width,
++            (pi->spi_cpha || (pi->spi_mode & 1)) ? 1 : 0,
++            (pi->spi_mode & 2) ? 1 : 0, pi->spi_idle_insert,
++            pi->spi_clock_hz);
+     s->bus        = pi->spi_bus;
+     s->dev        = pi->spi_dev;
+     s->configured = true;
+@@ -302,6 +342,13 @@ static void busy_nsleep(unsigned us)
+  * between transfers without adding unnecessary fixed delays.           */
+ static uint64_t last_spi_ns = 0;
+ 
++/* Minimum gap between a transfer completing and us trusting the data-ready
++ * level again. Covers CS de-assert plus the STM32's completion interrupt
++ * dropping the line; below this, a high reading may still be the previous
++ * frame's. 150 us is ~3x the observed re-arm latency and still an order of
++ * magnitude under the 1 ms tick the old unconditional sleep cost.        */
++#define DR_SETTLE_NS  150000ULL
++
+ /* Safe monotonic-time delta: end_ns - start_ns in nanoseconds, handling
+  * timespec nsec wraps correctly. */
+ static inline uint64_t ts_delta_ns(struct timespec end, struct timespec start)
+@@ -314,29 +361,51 @@ static inline uint64_t ts_delta_ns(struct timespec end, struct timespec start)
+     return ns;
+ }
+ 
+-/* ---- self-tuning rate limiter -------------------------------------------
+- * Normal operation: one SPI read every ~10 ms (matching the STM32 block
+- * period). When a read returns garbage (magic mismatch), the controller
+- * enters probe mode and retries at short intervals (500 us sleep) to
+- * rapidly re-sync with the STM32's frame boundary. Once a valid frame
+- * is found, probe mode exits and we return to the 10 ms cadence. The
+-/* (rate limiter moved to bottom of main loop; fixed 9.966 ms target) */
++/* ---- wait for the STM32's data-ready line --------------------------------
++ * The block that was here described a "self-tuning rate limiter" and a probe
++ * mode that no longer exist, and it was missing its closing delimiter -- so it
++ * swallowed the note that replaced it and tripped -Wcomment. Both are gone;
++ * pacing comes from the data-ready line itself, described below.             */
+ static int dataready_wait(dataready_t *d, controller_stats_t *st)
+ {
+     (void)st;
+-    /* Wait 200 us (via kernel timer) then sample the GPIO level.
+-     * TimerTimeout() on the QNX guest VM is rounded by the 1 ms system tick,
+-     * adding 100-1000 us of jitter to every poll.  This natural jitter acts as
+-     * phase dithering, spreading the Pi's SPI reads across many offsets within
+-     * the STM32's 10 ms block window and dramatically reducing the chance of
+-     * repeatedly hitting the DMA boundary.  Deterministic waits lack this
+-     * dithering and lock the phase to a single dangerous offset.               */
++    /* Fast path first. The STM32 re-arms inside its own TxRxCplt callback, so
++     * data-ready goes high again within ~50 us of the previous transfer
++     * finishing -- on the overwhelming majority of iterations the line is
++     * ALREADY high when we get here and there is nothing to wait for.
++     *
++     * Sleeping first cost us that whole iteration: TimerTimeout() is rounded up
++     * by the 1 ms system tick on this guest, so a nominal 200 us wait measured
++     * 930 us average / 2.7 ms worst case. Against a 10 ms block period where
++     * the SPI transfer alone takes most of the budget, that was the difference
++     * between finishing inside the window and losing the block.
++     *
++     * Hold a short settling gap since the last transfer before trusting the
++     * level, so a stale high (read before the STM32's completion interrupt has
++     * dropped the line) can't be mistaken for a fresh frame. This is what
++     * last_spi_ns and busy_nsleep were added for.                             */
++    if (last_spi_ns) {
++        struct timespec n;
++        clock_gettime(CLOCK_MONOTONIC, &n);
++        uint64_t now = (uint64_t)n.tv_sec * 1000000000ULL + n.tv_nsec;
++        uint64_t since = now - last_spi_ns;
++        if (since < DR_SETTLE_NS)
++            busy_nsleep((unsigned)((DR_SETTLE_NS - since) / 1000));
++    }
++    if (dataready_read_level(d)) return WR_OK;
++
++    /* Line is genuinely low -- the STM32 has no block ready yet. Sleep before
++     * re-sampling rather than spinning on the resource manager.
++     *
++     * The tick rounding also acts as phase dithering here, spreading our reads
++     * across offsets within the STM32's block window instead of locking to one
++     * fixed (and possibly unlucky) phase.                                     */
+     uint64_t to = 200000ULL;
+     struct _pulse pulse;
+     TimerTimeout(CLOCK_MONOTONIC, _NTO_TIMEOUT_RECEIVE, NULL, &to, NULL);
+     (void)MsgReceivePulse(d->chid, &pulse, sizeof pulse, NULL);
+     return dataready_read_level(d) ? WR_OK : WR_TIMEOUT;
+-}
++}
+ /* ============================ command transmitter ========================
+  *
+  * One outstanding command at a time. The same frame rides every SPI transfer
+@@ -828,6 +897,8 @@ int main(int argc, char **argv)
+     uint16_t last_rpm = 0;
+     struct timespec t_log;
+     clock_gettime(CLOCK_MONOTONIC, &t_log);
++    /* Previous-interval snapshots, for the per-second rate line. */
++    uint64_t prev_ok = 0, prev_drops = 0, prev_bad = 0;
+ 
+     /* ---- timing instrumentation (diagnostic) ---- */
+     uint64_t t_spi_ns = 0, t_pub_ns = 0;
+@@ -849,13 +920,29 @@ int main(int argc, char **argv)
+         clock_gettime(CLOCK_MONOTONIC, &now);
+         if (now.tv_sec != t_log.tv_sec) {
+             t_log = now;
++            /* Per-interval rates, printed alongside the totals. The totals are
++             * cumulative since startup and a burst early in a run leaves one
++             * sitting at a large frozen number for hours -- which reads as an
++             * ongoing fault and is not one. The rates are what say whether
++             * anything is wrong right now.
++             *
++             * bad = frames that arrived and were rejected, from any cause. */
++            const uint64_t bad_total = st.magic_err + st.version_err
++                                     + st.size_err  + st.crc_err;
++            const uint64_t d_ok    = st.frames_ok - prev_ok;
++            const uint64_t d_drops = st.seq_drops - prev_drops;
++            const uint64_t d_bad   = bad_total    - prev_bad;
++            prev_ok = st.frames_ok; prev_drops = st.seq_drops; prev_bad = bad_total;
++
++            fprintf(stderr, "[ctrl] rate(ok=%" PRIu64 "/s drops=%" PRIu64 "/s "
++                            "bad=%" PRIu64 "/s)\n", d_ok, d_drops, d_bad);
+             fprintf(stderr,
+                 "[ctrl] ok=%" PRIu64 " drops=%" PRIu64 " crc=%" PRIu64
+                 " magic=%" PRIu64 " ver=%" PRIu64 " size=%" PRIu64
+                 " dup=%" PRIu64 " rst=%" PRIu64 " to=%" PRIu64
+                 " spi=%" PRIu64 " cfg(rld=%" PRIu64 " ack=%" PRIu64 " nack=%" PRIu64 ")"
+                  " last(flags=0x%04x rsv=%u rows=%u)"
+-                 " sens(cur=%u/%u/%u vib=%d/%d/%d rpm=%u)"
++                 " sens(cur=%u/%u/%u vib=%d/%d/%d rpm=%u)"
+                 " bad=%d"
+                  " timing(wait=%" PRIu64 "/%" PRIu64 " spi=%" PRIu64 "/%" PRIu64 " pub=%" PRIu64 "/%" PRIu64
+                  " us)\n",
+@@ -872,7 +959,7 @@ int main(int argc, char **argv)
+                 t_samples ? t_spi_ns  / t_samples / 1000 : 0,
+                 t_samples ? t_spi_max / 1000 : 0,
+                 t_samples ? t_pub_ns  / t_samples / 1000 : 0,
+-                t_samples ? t_pub_max / 1000 : 0);
++                t_samples ? t_pub_max / 1000 : 0);
+             t_spi_ns = t_pub_ns = 0;
+             t_spi_max = t_pub_max = 0;
+             t_samples = 0;
+@@ -954,35 +1041,53 @@ int main(int argc, char **argv)
+          * aligned; the correct response is to pace reads at the 10 ms block
+          * cadence and pick up the next good frame.  A bad frame is simply
+          * not published.                                                      */
++        /* Validation is a chain, not four independent tests. A byte-shifted or
++         * all-zero frame fails magic, version AND size, and counting all three
++         * made one bad read look like three unrelated faults -- magic, ver and
++         * size marching up in lockstep is what that was, not three problems.
++         * Stop at the first failure so each bad frame is attributed once.      */
+         int frame_valid = 1;
+-
+-        if (h->magic != MOTOR_FRAME_MAGIC) { st.magic_err++;   have_last = 0; frame_valid = 0; }
+-        if (h->version != MOTOR_CONTRACT_VERSION)            { st.version_err++; have_last = 0; frame_valid = 0; }
+-        if (h->n_rows == 0 || h->n_rows > MOTOR_MAX_ROWS_PER_BLOCK) {
+-            st.size_err++; have_last = 0; frame_valid = 0;
+-        }
+-        if (frame_valid && active_stm.block_rows != 0
+-            && h->n_rows != active_stm.block_rows
+-            && !(h->flags & MOTOR_FLAG_CONFIG_APPLIED)) {
+-            st.size_err++; have_last = 0; frame_valid = 0;
+-        }
+-
+         size_t covered = 0;
+-        if (frame_valid) {
+-            covered = sizeof(frame_header_t) + (size_t)h->n_rows * sizeof(motor_row_t);
+-            if (covered + sizeof(frame_crc_t) > xfer_bytes) {
+-                st.size_err++; have_last = 0; frame_valid = 0;
+-            }
+-        }
+ 
+-        if (frame_valid) {
++        if (h->magic != MOTOR_FRAME_MAGIC) {
++            st.magic_err++;   frame_valid = 0;
++        } else if (h->version != MOTOR_CONTRACT_VERSION) {
++            st.version_err++; frame_valid = 0;
++        } else if (h->n_rows == 0 || h->n_rows > MOTOR_MAX_ROWS_PER_BLOCK) {
++            st.size_err++;    frame_valid = 0;
++        } else if (active_stm.block_rows != 0
++                   && h->n_rows != active_stm.block_rows
++                   && !(h->flags & MOTOR_FLAG_CONFIG_APPLIED)) {
++            st.size_err++;    frame_valid = 0;
++        } else if ((covered = sizeof(frame_header_t)
++                            + (size_t)h->n_rows * sizeof(motor_row_t))
++                   + sizeof(frame_crc_t) > xfer_bytes) {
++            st.size_err++;    frame_valid = 0;
++        } else {
+             uint32_t rx_crc;
+             memcpy(&rx_crc, rx + covered, sizeof rx_crc);
+             if (frame_crc_compute(rx, covered) != rx_crc) {
+-                st.crc_err++; have_last = 0; frame_valid = 0;
++                st.crc_err++; frame_valid = 0;
+             }
+         }
+ 
++        /* Deliberately NOT clearing have_last here.
++         *
++         * It used to be zeroed on every rejected frame, which wiped the
++         * sequence baseline -- so the gap that the rejected frame itself
++         * created was never counted, and the next good frame silently
++         * re-based. That is why drops read ~1/s while ~12 blocks/s were
++         * actually going missing: the counter was hiding exactly the losses it
++         * existed to report.
++         *
++         * Keeping the baseline makes the next good frame's seq delta account
++         * for everything missed in between, so drops finally means "blocks the
++         * STM32 produced that we never published". The cases where the
++         * baseline really is meaningless -- bus reinit, error recovery, a
++         * config apply that changes the frame shape -- each clear have_last
++         * themselves already, and an STM32 restart lands in the resets branch
++         * below rather than being counted as a giant gap.                     */
++
+         if (frame_valid) {
+             /* Command was actually clocked out AND yielded a valid frame. */
+             cmd_count_attempt();
+@@ -1040,8 +1145,8 @@ int main(int argc, char **argv)
+                 }
+             }
+         }
+-        t_samples++;
+-    }
++        t_samples++;
++    }
+ 
+     dataready_teardown(&dr);
+     close_spi(&spi);

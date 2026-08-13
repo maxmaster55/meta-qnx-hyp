@@ -17,6 +17,18 @@ inherit qnx-cmake qnx-src
 # so nothing that compiles against them changes.
 QNX_SRC_REPO = "git://github.com/PM-Maestro-ITI-GP-Org/motor-data-producer.git;protocol=https;branch=main"
 
+# qnx-src.bbclass ASSIGNS SRC_URI from QNX_SRC_REPO, so this has to append
+# after the inherit above -- a bbappend using += would work too, but the patch
+# belongs with the recipe that needs it.
+#
+# Carried here rather than pushed upstream because it is unreviewed and the
+# board is mid-bringup; fold it into the repo and drop this once it has run.
+# Note SRCREV is AUTOREV, so the branch head moving out from under these
+# patches is a real failure mode -- if do_patch starts failing, that is why,
+# and pinning QNX_SRC_REV is the fix.
+FILESEXTRAPATHS:prepend := "${THISDIR}/${PN}:"
+SRC_URI += "file://0001-Build-a-real-QNX-mode-word-stop-sleeping-before-ever.patch"
+
 # sys/rpi_gpio.h, which arrives in the sysroot.
 #
 # The CMakeLists reaches for it with
