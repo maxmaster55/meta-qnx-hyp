@@ -17,18 +17,6 @@ inherit qnx-cmake qnx-src
 # so nothing that compiles against them changes.
 QNX_SRC_REPO = "git://github.com/PM-Maestro-ITI-GP-Org/motor-data-producer.git;protocol=https;branch=main"
 
-# qnx-src.bbclass ASSIGNS SRC_URI from QNX_SRC_REPO, so this has to append
-# after the inherit above -- a bbappend using += would work too, but the patch
-# belongs with the recipe that needs it.
-#
-# Carried here rather than pushed upstream because it is unreviewed and the
-# board is mid-bringup; fold it into the repo and drop this once it has run.
-# Note SRCREV is AUTOREV, so the branch head moving out from under these
-# patches is a real failure mode -- if do_patch starts failing, that is why,
-# and pinning QNX_SRC_REV is the fix.
-FILESEXTRAPATHS:prepend := "${THISDIR}/${PN}:"
-SRC_URI += "file://0001-Build-a-real-QNX-mode-word-stop-sleeping-before-ever.patch"
-
 # sys/rpi_gpio.h, which arrives in the sysroot.
 #
 # The CMakeLists reaches for it with
@@ -67,21 +55,6 @@ do_install() {
 
 	install -d ${D}${QNX_STAGE_DIR}/motor-data-producer
 	install -m 0644 ${S}/config.json ${D}${QNX_STAGE_DIR}/motor-data-producer/
-
-	# The upstream config.json asks for 15 MHz with idle_insert off, which does
-	# not match the bus the guest actually brings up (8 MHz, idle_insert off --
-	# see the /var/spi.conf block in qnx-guest.build.in). On a mismatch
-	# spi_apply_conf() rewrites /var/spi.conf and bounces spi-dwc at every
-	# startup; that file is in the read-only IFS, so the rewrite fails and the
-	# only result is a restarted driver and a confusing log line. Worse, if it
-	# ever did succeed it would clock the STM32 at a rate nobody has validated.
-	#
-	# Patched here rather than upstream because the value is a property of this
-	# image's bus, not of the application: another board wiring the same
-	# producer to a faster link wants a different number.
-	sed -i -e 's/"spi_clock_hz": *[0-9]*/"spi_clock_hz": 8000000/' \
-	       -e 's/"spi_idle_insert": *[0-9]*/"spi_idle_insert": 0/' \
-	       ${D}${QNX_STAGE_DIR}/motor-data-producer/config.json
 
 	# Headers for motor_ai_client and motor_recorder, which compile against
 	# them. Sysroot only -- they are a build-time contract and have no business
