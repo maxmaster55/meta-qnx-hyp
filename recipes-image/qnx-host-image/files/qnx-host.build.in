@@ -80,8 +80,27 @@
 
     display_msg "Enabling routing for guests ..."
     sysctl -w net.inet.ip.forwarding=1
-    pfctl -f /etc/pf.conf
+
+    ## -e first, then -N with only the nat ruleset. NOT "pfctl -f", which is the
+    ## obvious spelling and does not work on this SDP: the unified load fails
+    ## for every ruleset, including a file containing nothing but "pass all",
+    ##
+    ##     pfctl: pfctl_rules
+    ##     pfctl: DIOCXROLLBACK: Invalid argument
+    ##
+    ## and it fails at boot where nobody reads it, so pf came up enabled with an
+    ## empty ruleset and the guests had no NAT at all. This SDP ships an io-sock
+    ## newer than its pfctl -- the two disagree about the shape of pf's ioctl
+    ## nvlists, which is also why "pfctl -s nat" aborts on missing elements.
+    ## The single-ruleset -N path does not go through the part they disagree on.
+    ##
+    ## No filter rules. pf's default is to pass, so an empty filter ruleset is
+    ## the open policy this board already had, and the reference's "set skip"
+    ## lines are what make -R fail here ("Must enable table loading for
+    ## optimizations"). If filtering is ever wanted, plain pass/block rules do
+    ## load through -R.
     pfctl -e
+    pfctl -N -f /etc/pf-nat.conf
 
     # After pf, matching the reference. The gateway is on the bridge's subnet,
     # so this needs bridge0 addressed -- which .vdev_net_start.sh above did.
@@ -211,8 +230,10 @@
     ## still starts and still answers the broker, and every guest operation
     ## fails at the ssh. See meta-qnx/docs/ssh.md.
     ############################################################################
+    ## Backgrounded, and it waits for the wifi before exec'ing hms -- see
+    ## .hms-start.sh, which is also where the priority is applied.
     display_msg "Starting hypervisor management system ..."
-    hms &
+    /proc/boot/.hms-start.sh &
 
     ############################################################################
     ## WiFi provisioning.
@@ -365,6 +386,86 @@ ifconfig bridge0 -txcsum -txcsum6 -tso4 -tso6
 ##
 ## No '}' and no '${...}' below: an inline mkifs block cannot carry either.
 ################################################################################
+################################################################################
+## hms, once there is a network to reach the broker over.
+##
+## Two things this does that the one-line "hms &" it replaces could not.
+##
+## 1. It waits for the wifi.
+##
+##    hms's whole job is on the far side of an MQTT broker on the public
+##    internet, and the route to it comes from the dhcpcd lease .wifi-start.sh
+##    obtains -- which happens seconds to tens of seconds after the boot script
+##    reaches this point. Started immediately, hms comes up, fails to connect,
+##    and retries in the background:
+##
+##        [MQTT] Connecting to 139.185.38.211:1883 (async, will retry ...)
+##        [MQTT] Disconnected (rc=14) - will retry
+##
+##    Harmless but noisy, and it interleaves with the wifi's own output on the
+##    same console, which makes a boot much harder to read than it should be.
+##
+##    The wait is bounded and hms starts either way. A board whose wifi never
+##    associates is exactly the board someone needs to reach, and the wired LAN
+##    may well route to the broker anyway -- hms retries on its own, so starting
+##    it costs nothing and refusing to would take away the tool.
+##
+## 2. It gives hms a priority, with a full path.
+##
+##    "on -p 20 hms" does not work: on resolves the program itself rather than
+##    inheriting the boot script's PATH lookup, and reports the miss as
+##
+##        on: No such file or directory (hms)
+##
+##    which is easy to read as on being absent when on ran fine. /bin/hms.
+##
+##    The priority matters because 10 -- procnto's default, which a bare "hms &"
+##    would get -- is below the guest AP vCPUs at 20, leaving the manager
+##    beneath the thing it manages. It surfaces in the GUI's Monitor tab first,
+##    that being hms's most CPU-hungry path: every poll runs top locally and
+##    then SSHes into the guest, and the handshake is key-exchange CPU at both
+##    ends. Starve either and it exceeds ssh's ConnectTimeout, reported as
+##
+##        Connection timed out during banner exchange
+##
+##    -- a network fault to read, a scheduling one in fact.
+##
+##    Equal to the guest APs rather than above: round-robin at the same priority
+##    makes them timeslice, where putting hms higher would let a stats poll
+##    preempt the guest whose statistics it is collecting. Below io-sock at 21
+##    either way, so neither can starve host networking.
+##
+## No closing brace and no dollar-brace below: inline mkifs block.
+################################################################################
+[perms=0744] .hms-start.sh = {
+#!/bin/ksh
+
+WIFI_IF=bcm0
+WAIT=@QNX_HOST_HMS_WAIT@
+PRIO=@QNX_HOST_HMS_PRIORITY@
+
+# An address, not just the interface. if_up would return as soon as the radio
+# exists, which is before the supplicant has associated and long before dhcpcd
+# has a lease -- and it is the lease that carries the default route hms needs.
+echo "hms: waiting up to $WAIT s for $WIFI_IF to get an address ..."
+
+i=0
+while [ $i -lt $WAIT ]; do
+    if ifconfig $WIFI_IF 2>/dev/null | grep -q "inet "; then
+        echo "hms: $WIFI_IF is up -- starting hms at priority $PRIO"
+        exec on -p $PRIO /bin/hms
+    fi
+    sleep 1
+    i=$((i + 1))
+done
+
+echo "hms: $WIFI_IF has no address after $WAIT s -- starting anyway."
+echo "hms: it retries the broker in the background, so it will connect if the"
+echo "hms: wired link reaches it. A board with no route is also the board"
+echo "hms: someone needs to reach, so this is not a reason to withhold it."
+exec on -p $PRIO /bin/hms
+}
+
 [perms=0744] .wifi-start.sh = {
 #!/bin/ksh
 
@@ -422,19 +523,16 @@ echo "wifi: up -- check with 'wpa_cli status' and 'ifconfig bcm0'"
 }
 
 ################################################################################
-## Firewall: NAT the guest network out through the bridge, so a guest can reach
-## the outside world with the host as its gateway.
+## NAT, so a guest can reach the outside world with this host as its gateway.
+##
+## One rule per (uplink, guest network) pair, generated from QNX_HOST_NAT_IFS
+## and QNX_HOST_NAT_NETS -- see the recipe for why both uplinks are named.
+##
+## Loaded with "pfctl -N -f", not "pfctl -f"; the difference is not cosmetic and
+## is explained in the startup script above.
 ################################################################################
-[perms=0644] /etc/pf.conf = {
-ext_if = "bridge0"
-guest_net = "@QNX_HOST_GUEST_NET@"
-linux_net = "@QNX_HOST_LINUX_NET@"
-
-nat on $ext_if from $guest_net to any -> ($ext_if)
-nat on $ext_if from $linux_net to any -> ($ext_if)
-pass in quick on vp0 all
-pass in quick on vp1 all
-pass out quick on $ext_if all
+[perms=0644] /etc/pf-nat.conf = {
+@QNX_HOST_PF_NAT@
 }
 
 ################################################################################

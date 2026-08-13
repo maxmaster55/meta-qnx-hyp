@@ -86,6 +86,12 @@ QNX_IFS_LD_LIBRARY_PATH = "/proc/boot:/lib:/usr/lib:/lib/dll:/lib/dll/pci"
 # qnx-base.build.inc fragment, whose default is the guest's /dev/vcon1.
 QNX_CONSOLE_DEV = "/dev/ser10"
 
+# Which machine this shell is on. Three consoles on this board look identical --
+# this one, the QNX guest's, and an ssh session into either -- and the stock
+# prompt is a bare "# " everywhere. A command meant for a guest is not always
+# harmless run here.
+QNX_IFS_PROMPT = "(HOST)# "
+
 # libwfdcfg.so.0 IS in this image, and the dependency closure cannot see that.
 #
 # libWFDrpi5.so has DT_NEEDED libwfdcfg.so.0, and the closure resolves sonames by
@@ -171,6 +177,54 @@ QNX_HOST_DNS ?= "${QNX_HOST_GATEWAY} 8.8.8.8"
 # rather than a backslash escape so there is no question of which parser eats it.
 QNX_HOST_RESOLV = "${@chr(10).join('nameserver %s' % s for s in (d.getVar('QNX_HOST_DNS') or '').split())}"
 
+# ---------------------------------------------------------------------------
+# NAT for the guest networks
+# ---------------------------------------------------------------------------
+# The interfaces guest traffic may be translated onto, and the networks that
+# get translated. One `nat` rule is generated per pair.
+#
+# Both uplinks are listed, not one. The board has two ways off itself and it is
+# not a build-time fact which is in use: bridge0 for the wired LAN, bcm0 when
+# the wifi supplicant associates -- and dhcpcd then installs a default route
+# through it, replacing the static one this image sets. A guest whose packets
+# leave through bcm0 while the only nat rule says bridge0 is not translated at
+# all, so it sends 10.0.0.2 onto a network that has never heard of it and the
+# replies go nowhere. Naming both costs one unused rule; pf applies nat only on
+# the interface a packet actually leaves through, and tolerates a rule naming an
+# interface that does not exist -- which bcm0 does not, at the point in the boot
+# script where these are loaded.
+# ---------------------------------------------------------------------------
+# hms priority
+# ---------------------------------------------------------------------------
+# What hms is spawned at, rather than procnto's default 10.
+#
+# Must not sit below the guest vCPUs, or the manager is preempted by the thing
+# it manages -- and hms's Monitor path is the one that notices, because it SSHes
+# into the guest and the handshake is CPU on both ends. Matches
+# QNX_GUEST_VCPU_AP_SCHED in meta-qnx-guest so the two timeslice rather than one
+# starving the other, and stays below io-sock's 21.
+QNX_HOST_HMS_PRIORITY ?= "20"
+
+# How long .hms-start.sh waits for the wifi to have an address before starting
+# hms regardless. The broker is on the public internet and the route to it comes
+# from the wifi lease, so starting earlier just means hms logs connect failures
+# over the top of the wifi's own boot output.
+#
+# Bounded rather than indefinite on purpose: a board whose wifi never associates
+# is exactly the board someone needs to reach, and hms retries the broker on its
+# own. Set it to 0 to start hms immediately.
+QNX_HOST_HMS_WAIT ?= "60"
+
+QNX_HOST_NAT_IFS ?= "bridge0 bcm0"
+QNX_HOST_NAT_NETS ?= "${QNX_HOST_GUEST_NET} ${QNX_HOST_LINUX_NET}"
+
+# -> (iface), parenthesised, is a lazy lookup: pf reads the address when a
+# packet matches rather than when the rule loads. That is what lets these load
+# before the wifi has associated or the bridge has been addressed.
+QNX_HOST_PF_NAT = "${@chr(10).join('nat on %s inet from %s to any -> (%s)' % (i, n, i) \
+                     for i in (d.getVar('QNX_HOST_NAT_IFS') or '').split() \
+                     for n in (d.getVar('QNX_HOST_NAT_NETS') or '').split())}"
+
 # Template markers are expanded at task time from a file, so bitbake cannot see
 # which variables a build file depends on -- changing one would leave the image
 # unrebuilt. The class names its own; these are this image's.
@@ -178,7 +232,10 @@ QNX_HOST_RESOLV = "${@chr(10).join('nameserver %s' % s for s in (d.getVar('QNX_H
 # Only the new ones are listed rather than every address in the template: adding
 # the rest is right, but it changes the signature of an image that is currently
 # known-good on the board, and that is a separate change from fixing DNS.
-do_generate_buildfile[vardeps] += "QNX_HOST_DNS QNX_HOST_RESOLV"
+do_generate_buildfile[vardeps] += "QNX_HOST_DNS QNX_HOST_RESOLV \
+                                   QNX_HOST_HMS_PRIORITY QNX_HOST_HMS_WAIT \
+                                   QNX_HOST_NAT_IFS QNX_HOST_NAT_NETS \
+                                   QNX_HOST_PF_NAT"
 
 # ---------------------------------------------------------------------------
 # SD card and the data partition
