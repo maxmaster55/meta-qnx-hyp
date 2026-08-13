@@ -1,0 +1,6 @@
+# Patches carry their target file's line endings inside the context lines, so
+# they must be stored byte-for-byte. motor-data-producer's sources are CRLF
+# upstream; normalising the patch to LF makes every context line mismatch and
+# do_patch fails on a fresh clone -- while still applying fine in the working
+# tree that created it, which is a nasty way to find out.
+*.patch -text
