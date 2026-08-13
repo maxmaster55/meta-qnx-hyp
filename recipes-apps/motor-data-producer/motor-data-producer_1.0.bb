@@ -56,6 +56,21 @@ do_install() {
 	install -d ${D}${QNX_STAGE_DIR}/motor-data-producer
 	install -m 0644 ${S}/config.json ${D}${QNX_STAGE_DIR}/motor-data-producer/
 
+	# The upstream config.json asks for 15 MHz with idle_insert off, which does
+	# not match the bus the guest actually brings up (8 MHz, idle_insert off --
+	# see the /var/spi.conf block in qnx-guest.build.in). On a mismatch
+	# spi_apply_conf() rewrites /var/spi.conf and bounces spi-dwc at every
+	# startup; that file is in the read-only IFS, so the rewrite fails and the
+	# only result is a restarted driver and a confusing log line. Worse, if it
+	# ever did succeed it would clock the STM32 at a rate nobody has validated.
+	#
+	# Patched here rather than upstream because the value is a property of this
+	# image's bus, not of the application: another board wiring the same
+	# producer to a faster link wants a different number.
+	sed -i -e 's/"spi_clock_hz": *[0-9]*/"spi_clock_hz": 8000000/' \
+	       -e 's/"spi_idle_insert": *[0-9]*/"spi_idle_insert": 0/' \
+	       ${D}${QNX_STAGE_DIR}/motor-data-producer/config.json
+
 	# Headers for motor_ai_client and motor_recorder, which compile against
 	# them. Sysroot only -- they are a build-time contract and have no business
 	# in an image.
