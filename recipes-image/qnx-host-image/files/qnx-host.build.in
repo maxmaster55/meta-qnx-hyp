@@ -232,6 +232,10 @@
     ############################################################################
     ## Backgrounded, and it waits for the wifi before exec'ing hms -- see
     ## .hms-start.sh, which is also where the priority is applied.
+    ## The guests' recording volumes, created on the card rather than shipped.
+    display_msg "Ensuring guest recording volumes exist ..."
+    /proc/boot/.record-create.sh
+
     display_msg "Starting hypervisor management system ..."
     /proc/boot/.hms-start.sh &
 
@@ -456,6 +460,53 @@ ifconfig bridge0 -txcsum -txcsum6 -tso4 -tso6
 ##
 ## No closing brace and no dollar-brace below: inline mkifs block.
 ################################################################################
+################################################################################
+## Recording volumes for the guests.
+##
+## Creates /guests/<id>/record.img on the data partition if it is not already
+## there, so a guest can have a large writable area that the BUILD never pays
+## for. rootfs.img is a file inside this partition, so every gigabyte of it is
+## a gigabyte mkqnx6fsimg copies in on every image build -- about 100s per GB,
+## and it was most of a rebuild. This file is made once, here, on the card.
+##
+## Sparse: seek past the end and write nothing. The card gives up only what the
+## recordings actually use, so an 8G volume costs kilobytes until it is
+## written to, and creating it takes no measurable time.
+##
+## NOT formatted here. It is formatted inside the guest, where it appears as a
+## block device -- which is what mkqnx6fs -x requires to make the filesystem
+## expandable. See .record-mount.sh in the guest image.
+##
+## Left alone if it exists: this runs on every boot and must never be the thing
+## that destroys a recording.
+################################################################################
+[perms=0744] .record-create.sh = {
+#!/bin/ksh
+
+SIZE=@QNX_HOST_RECORD_SIZE@
+
+for d in /guests/*
+do
+    test -d $d || continue
+    img=$d/record.img
+    if test -e $img
+    then
+        echo "record: $img already exists, leaving it alone"
+        continue
+    fi
+    echo "record: creating $img ($SIZE, sparse)"
+    if dd if=/dev/zero of=$img bs=1 count=0 seek=$SIZE 2>/dev/null
+    then
+        echo "record: $img ready"
+    else
+        echo "record: could not create $img -- the guest will start without"
+        echo "record: a recording volume and motor_recorder will have nowhere"
+        echo "record: to write. Is the data partition mounted and writable?"
+        rm -f $img
+    fi
+done
+}
+
 [perms=0744] .hms-start.sh = {
 #!/bin/ksh
 
