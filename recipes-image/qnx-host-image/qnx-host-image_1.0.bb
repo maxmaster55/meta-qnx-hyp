@@ -221,7 +221,13 @@ QNX_HOST_NAT_NETS ?= "${QNX_HOST_GUEST_NET} ${QNX_HOST_LINUX_NET}"
 # -> (iface), parenthesised, is a lazy lookup: pf reads the address when a
 # packet matches rather than when the rule loads. That is what lets these load
 # before the wifi has associated or the bridge has been addressed.
-QNX_HOST_PF_NAT = "${@chr(10).join('nat on %s inet from %s to any -> (%s)' % (i, n, i) \
+#
+# "to !<net>" rather than "to any", and that exclusion is load-bearing now that
+# the QNX guest is bridged onto the LAN. With "to any" the rule also matched
+# guest-to-head-unit traffic -- two hosts on the same wire, one segment, no
+# routing involved -- and translated a purely local conversation. NAT belongs
+# on traffic leaving the board, not on traffic that never does.
+QNX_HOST_PF_NAT = "${@chr(10).join('nat on %s inet from %s to !%s -> (%s)' % (i, n, n, i) \
                      for i in (d.getVar('QNX_HOST_NAT_IFS') or '').split() \
                      for n in (d.getVar('QNX_HOST_NAT_NETS') or '').split())}"
 

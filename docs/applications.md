@@ -63,19 +63,55 @@ arrives through the sysroot via `DEPENDS = "rpi-gpio"`.
 
 ### motor-ai-server
 
-The Linux half. It writes a CSV window and runs the AI app over it, then replies
-with the verdict. The seam is one command and two files:
+The Linux half, and now two processes rather than one. The service used to spawn
+`motor-ai-infer` per window and wait for it to exit; it now writes the window to
+a fixed path and signals a long-running `motor_ai_node`, which sleeps between
+requests instead of being started and stopped for each one.
+
+The seam is one directory, `data_dir` (`/motor_data`), and three signals:
 
 ```
-motor-ai-infer <window.csv> <result.json>     exit 0 = fresh verdict
+/motor_data/input_data/data.csv     the window, written by the server
+/motor_data/results/result.ini      one stage's verdict, written by the node
+/motor_data/ai.pid                  the node's pid, so the server can signal it
+
+SIGUSR1 -> anomaly       always
+SIGUSR2 -> fault class   only when anomaly != "normal"
+SIGTERM -> RUL           only when anomaly != "normal"
 ```
 
-so the model, the features and the class meanings can all change without the
-server knowing. `/etc/motor-ai-server/server.conf` carries `window_rows`,
-`csv_dir`, `infer_command`, `infer_timeout_ms` and `csv_keep`.
+Both files are written under a temporary name and renamed into place, because
+the reader on each side polls for existence and reads the moment the file
+appears — "it is there" has to mean "it is complete". `result.ini` carries
+`stage=` as well as `value=`, so a late answer to a timed-out stage cannot be
+read as the next stage's.
 
-`window_rows` is also the dial for how often the service stalls: inference blocks
-the SOME/IP reply, and the reply blocks the QNX client.
+A healthy window costs one model and an anomalous one costs three, which is the
+point of the split.
+
+`/etc/motor-ai-server/server.conf` carries `window_rows`, `data_dir`,
+`ai_pid_file`, `result_timeout_ms` and the three `sig_*` values. The last four
+are a contract with the node's `/etc/motor-ai-node/node.conf` — nothing checks
+that the two agree, and a mismatch just means the server waits out
+`result_timeout_ms` per window with no distinctive error.
+
+`window_rows` is still the dial for how often the service stalls: inference
+blocks the SOME/IP reply, and the reply blocks the QNX client. It is 26000 on
+both sides, so one client call is one window is one inference.
+
+> `sig_rul = SIGTERM` is the specified default and a poor one — SIGTERM's
+> default disposition terminates, so any ordinary `kill` or `systemctl stop`
+> looks like a request to run the model. The node publishes its pid only after
+> installing handlers and takes SIGINT as "stop", and its unit sets
+> `KillSignal=SIGINT` to match. Setting `sig_rul = SIGRTMIN` on both sides
+> removes the collision instead of working around it.
+
+The models are not implemented. `motor_ai_node` reads the window, counts the
+rows and returns a fixed verdict per stage — enough to exercise the handshake
+with the real layout and timing. `ai-app` (the TFLite `motor_infer` and its
+models) is still installed but no longer wired to anything; the intended end
+state is a signal-driven build of that repository replacing
+`motor-ai-server-node`.
 
 ### motor-recorder
 
@@ -91,8 +127,31 @@ Runs on the host. Discovers guests under `/guests`, starts and stops them throug
 `qvm`, and takes commands over MQTT so a GUI client elsewhere can drive the
 board. OTA packages move by `scp`.
 
-Installed but **not started**: it reaches a broker over the network and can stop
-and start guests, so when it runs is a decision rather than a default.
+**Started at boot, but not immediately.** `.hms-start.sh` waits for the wifi to
+have an address before exec'ing it, because hms's whole job is on the far side
+of a broker on the public internet and the route there comes from the dhcpcd
+lease. Started earlier it comes up, fails to connect and retries in the
+background — harmless, but it interleaves with the wifi's own output on the
+same console and makes a boot much harder to read.
+
+| | default | |
+| --- | --- | --- |
+| `QNX_HOST_HMS_WAIT` | `60` | seconds to wait for `bcm0` to get an address |
+| `QNX_HOST_HMS_PRIORITY` | `20` | what hms is spawned at |
+
+The wait is bounded and hms starts either way. A board whose wifi never
+associates is exactly the board someone needs to reach, hms retries the broker
+on its own, and the wired link may route to it anyway.
+
+The priority is not decoration — see [Priorities](#priorities) below. And it is
+applied with a **full path**: `on` resolves the program itself rather than
+inheriting the boot script's PATH, and reports the miss as
+
+```
+on: No such file or directory (hms)
+```
+
+which reads as `on` being absent when `on` ran perfectly well.
 
 It needs an ssh key pair that no layer supplies. See
 [ssh.md](../../meta-qnx/docs/ssh.md) — `QNX_SSH_IDENTITY` in `local.conf` is the
@@ -171,3 +230,44 @@ which reads like a missing SDP rather than a wrong compiler. Use
 
 **Headers by relative path.** `#include "../../../motor_data_producer/QNX-SPI/motor_wire.h"`
 resolves only in the monorepo. Include by name and let the sysroot supply it.
+
+## Priorities
+
+Who gets the CPU when the board is busy. Two separate namespaces — a guest's
+internal priorities have nothing to do with the host's — but they interact
+through the vCPU threads, which are host threads running guest code.
+
+**On the host:**
+
+| | priority | |
+| --- | --- | --- |
+| io-sock | 21 | the network stack; nothing below may starve it |
+| hms | **20** | `QNX_HOST_HMS_PRIORITY` |
+| guest AP vCPU threads | **20** | `QNX_GUEST_VCPU_AP_SCHED`, see [vcpus.md](../../meta-qnx-guest/docs/vcpus.md) |
+| guest boot vCPU thread | 10 | qvm's own priority |
+| everything else | 10 | procnto's default |
+
+hms at 20 rather than the default 10 because 10 is *below* the guest vCPUs,
+which leaves the manager beneath the thing it manages. Equal to them rather
+than above: round-robin at the same priority makes them timeslice, where
+putting hms higher would let a stats poll preempt the guest whose statistics it
+is collecting.
+
+**Inside the QNX guest:**
+
+| | priority | |
+| --- | --- | --- |
+| spi-dwc | 30 | the SPI driver — measured at ~36% of the guest's CPU |
+| sshd | **15** | `QNX_GUEST_SSHD_PRIORITY` |
+| the applications | 10 | Qt cluster, motor producer/recorder, AI client |
+
+sshd above the applications because an ssh key exchange is CPU *in the guest*,
+and at equal priority a handshake queues behind a software-rendered cluster.
+Below spi-dwc because a login must not preempt the SPI driver.
+
+> The guest sshd priority is reasoned, not measured. When it was set, a
+> handshake into an idle guest measured 339 ms and the guest was ~58% busy —
+> which is to say the ordering was not being tested at the time. If ssh into
+> the guest is ever slow again, `pidin -P sshd -f narpS` inside it during a
+> handshake settles it: `READY` rather than `RUNNING` means it is still waiting
+> for CPU and 15 was not enough.

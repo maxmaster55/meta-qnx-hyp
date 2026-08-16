@@ -46,7 +46,32 @@ QNX_LINUX_GUEST_DIR ?= "guest-2"
 QNX_QNX_GUEST_NAME ?= "guest_1"
 
 QNX_LINUX_GUEST_RAM_ADDR ?= "0x80000000"
-QNX_LINUX_GUEST_RAM ?= "512M"
+# 4G, up from 512M.
+#
+# This guest is the AI node: it runs the TFLite inference over 26000-row
+# windows as well as the SOME/IP server, and 512M was the tightest allocation
+# in the system -- enough to run, with nothing spare for a larger model or a
+# second window in flight.
+#
+# Sized for a 16GB board. With the QNX guest at 4G and the host measured at
+# ~1.1G, this commits ~9G and leaves ~7G. On an 8GB board the same pair does
+# not fit and qvm will fail to start the second guest, so this and
+# QNX_GUEST_RAM move together.
+QNX_LINUX_GUEST_RAM ?= "4G"
+
+# Virtual CPUs for the Linux guest, one "cpu" line each.
+#
+# Two, matching the QNX guest. The board has four cores and the host needs
+# time on them as well, so the pair of guests is already asking for all four --
+# qvm will timeslice rather than fail, but raising this further means the
+# guests contend with the hypervisor itself.
+QNX_LINUX_GUEST_VCPUS ?= "2"
+#
+# Joined with a literal backslash-n, not a real newline: this is substituted by
+# sed below, and s|...|...| cannot span lines -- a real newline in the
+# replacement fails with "unterminated `s' command". GNU sed turns the escape
+# back into a newline as it writes the file.
+QNX_LINUX_GUEST_CPUS = "${@'\\n'.join(['cpu'] * max(1, int(d.getVar('QNX_LINUX_GUEST_VCPUS') or '1')))}"
 
 QNX_LINUX_GUEST_MAC ?= "52:54:00:00:01:02"
 QNX_LINUX_GUEST_MAC2 ?= "52:54:00:00:02:02"
@@ -103,7 +128,12 @@ QNX_LINUX_GUEST_MAC2 ?= "52:54:00:00:02:02"
 # package set is not a free choice, and getting it wrong empties the SDP.
 QNX_LINUX_GUEST_GIC_VERSION ?= ""
 
-do_install[vardeps] += "QNX_LINUX_GUEST_DEPLOY QNX_LINUX_GUEST_KERNEL QNX_LINUX_GUEST_ROOTFS"
+# The qvmconf is expanded by sed inside do_install, so bitbake cannot see which
+# variables it depends on -- without naming them here, changing the vCPU count
+# would leave the staged qvmconf untouched and the guest still booting with
+# the old topology.
+do_install[vardeps] += "QNX_LINUX_GUEST_DEPLOY QNX_LINUX_GUEST_KERNEL QNX_LINUX_GUEST_ROOTFS \
+                        QNX_LINUX_GUEST_VCPUS QNX_LINUX_GUEST_CPUS QNX_LINUX_GUEST_RAM"
 do_install[file-checksums] += "\
     ${QNX_LINUX_GUEST_DEPLOY}/${QNX_LINUX_GUEST_KERNEL}:True \
     ${QNX_LINUX_GUEST_DEPLOY}/${QNX_LINUX_GUEST_ROOTFS}:True \
@@ -143,6 +173,7 @@ do_install() {
 	    -e 's|@QNX_LINUX_GUEST_NAME@|${QNX_LINUX_GUEST_NAME}|g' \
 	    -e 's|@QNX_LINUX_GUEST_RAM_ADDR@|${QNX_LINUX_GUEST_RAM_ADDR}|g' \
 	    -e 's|@QNX_LINUX_GUEST_RAM@|${QNX_LINUX_GUEST_RAM}|g' \
+	    -e 's|@QNX_LINUX_GUEST_CPUS@|${QNX_LINUX_GUEST_CPUS}|g' \
 	    -e 's|@QNX_LINUX_GUEST_MAC@|${QNX_LINUX_GUEST_MAC}|g' \
 	    -e 's|@QNX_LINUX_GUEST_MAC2@|${QNX_LINUX_GUEST_MAC2}|g' \
 	    -e 's|@QNX_QNX_GUEST_NAME@|${QNX_QNX_GUEST_NAME}|g' \

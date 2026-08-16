@@ -13,7 +13,14 @@ system @QNX_LINUX_GUEST_NAME@
 
 ram @QNX_LINUX_GUEST_RAM_ADDR@,@QNX_LINUX_GUEST_RAM@
 
-cpu
+# One "cpu" line per vCPU, generated from QNX_LINUX_GUEST_VCPUS.
+#
+# Unlike the QNX guest, the APs here need no raised priority: Linux brings
+# secondary CPUs up through PSCI and waits on them properly, rather than
+# spin-waiting on a plain memory flag the way QNX's startup does. That
+# asymmetry is why the other guest's config sets a scheduling class per AP and
+# this one does not.
+@QNX_LINUX_GUEST_CPUS@
 
 load image.bin
 
