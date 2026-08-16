@@ -490,8 +490,9 @@ ifconfig bridge0 -txcsum -txcsum6 -tso4 -tso6
 
 SIZE=@QNX_HOST_RECORD_SIZE@
 
-for d in /guests/*
+for g in @QNX_HOST_RECORD_GUESTS@
 do
+    d=/guests/$g
     test -d $d || continue
     img=$d/record.img
     if test -e $img

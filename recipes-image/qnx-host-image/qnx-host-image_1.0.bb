@@ -231,6 +231,11 @@ QNX_HOST_HMS_WAIT ?= "60"
 # once. Must agree with QNX_GUEST_RECORD_SIZE in meta-qnx-guest.
 QNX_HOST_RECORD_SIZE ?= "8589934592"
 
+# Which guests get one. Not every guest under /guests wants an 8 GiB volume --
+# the Linux guest has its own storage -- and creating one for each would need
+# the data partition to reserve space for all of them.
+QNX_HOST_RECORD_GUESTS ?= "guest-1"
+
 QNX_HOST_NAT_IFS ?= "bridge0 bcm0"
 QNX_HOST_NAT_NETS ?= "${QNX_HOST_GUEST_NET} ${QNX_HOST_LINUX_NET}"
 
@@ -256,7 +261,7 @@ QNX_HOST_PF_NAT = "${@chr(10).join('nat on %s inet from %s to !%s -> (%s)' % (i,
 # known-good on the board, and that is a separate change from fixing DNS.
 do_generate_buildfile[vardeps] += "QNX_HOST_DNS QNX_HOST_RESOLV \
                                    QNX_HOST_HMS_PRIORITY QNX_HOST_HMS_WAIT \
-                                   QNX_HOST_RECORD_SIZE QNX_HOST_GUEST_LAN_PEER \
+                                   QNX_HOST_RECORD_SIZE QNX_HOST_RECORD_GUESTS QNX_HOST_GUEST_LAN_PEER \
                                    QNX_HOST_NAT_IFS QNX_HOST_NAT_NETS \
                                    QNX_HOST_PF_NAT"
 
