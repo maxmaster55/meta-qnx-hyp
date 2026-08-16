@@ -335,17 +335,22 @@ waitfor /dev/usb/io-usb-otg 10
 # it is there.
 waitfor /dev/io-sock/mods-vdevpeer-net.so 10
 
-# --- QNX guest -------------------------------------------------------------
-# No address here: vp0 is a bridge member (see the bridge section below), and a
-# member with its own address is how you get traffic leaving by the wrong
-# interface. The host still reaches the guest on @QNX_HOST_GUEST_IP@ -- that
-# address moves onto bridge0 as an alias.
+# --- QNX guest: management link, routed --------------------------------------
+# Addressed and routed, not bridged. This is how the host reaches the guest for
+# ssh, hms and the Monitor, and it is the subnet pf NATs out to the internet.
+#
+# It WAS briefly a bridge member, to carry SOME/IP multicast to the head unit,
+# with this address moved onto bridge0 as an alias. That works for SOME/IP and
+# costs the management path: a bridge member with its own address sends traffic
+# out of the wrong interface, so the address had to move, and the routed subnet
+# stopped being routed. The multicast requirement is real, so it gets a link of
+# its own -- vp2 below -- rather than taking this one over.
 ifconfig vp0 create
 vpctl vp0 peer=@QNX_HOST_GUEST_PEER@ bind=/dev/vdevpeers/vp0
-ifconfig vp0 up
+ifconfig vp0 @QNX_HOST_GUEST_IP@ netmask 255.255.255.0 up
 ifconfig vp0 -txcsum -txcsum6 -tso4 -tso6
 
-# --- Linux guest -----------------------------------------------------------
+# --- Linux guest -------------------------------------------------------------
 # Second guest, second vdevpeer. Skipped harmlessly when there is no Linux
 # guest: qvm never created the peer, so vpctl fails and the interface stays
 # down without affecting vp0 or the bridge.
@@ -354,32 +359,32 @@ vpctl vp1 peer=@QNX_HOST_LINUX_PEER@ bind=/dev/vdevpeers/vp1
 ifconfig vp1 @QNX_HOST_LINUX_IP@ netmask 255.255.255.0 up
 ifconfig vp1 -txcsum -txcsum6 -tso4 -tso6
 
-# --- physical NIC and bridge ----------------------------------------------
-# vp0 joins the bridge, so the QNX guest is on the same L2 segment as whatever
-# is plugged into cgem0 -- the AAOS head unit, in this build.
+# --- QNX guest: LAN link, bridged, for SOME/IP -------------------------------
+# SOME/IP service discovery is multicast (224.244.224.245) and multicast does
+# not cross a routed boundary: over vp0 the head unit never saw an
+# OfferService, and NAT gave it nowhere to send a subscribe back to. Bridging
+# puts the guest on the same L2 segment as whatever is plugged into cgem0, so
+# the two ARP for each other directly, which is what the protocol assumes.
 #
-# It used to be routed and NATed instead, and that could not carry SOME/IP.
-# Service discovery is multicast (224.244.224.245), and multicast does not
-# cross a routed boundary: the head unit never saw an OfferService, and NAT
-# gave it nowhere to send a subscribe back to. Bridging makes the guest and the
-# head unit ARP for each other directly, which is what the protocol assumes.
-#
-# The guest keeps its outbound path: pf still NATs its subnet out to the world,
-# see the ruleset below.
+# No address on this side, on purpose. The host already has bridge0's, and a
+# bridge member with its own address is how you get traffic leaving by the
+# wrong interface -- which is exactly what went wrong when vp0 was the member.
+ifconfig vp2 create
+vpctl vp2 peer=@QNX_HOST_GUEST_LAN_PEER@ bind=/dev/vdevpeers/vp2
+ifconfig vp2 up
+ifconfig vp2 -txcsum -txcsum6 -tso4 -tso6
+
+# --- physical NIC and bridge -------------------------------------------------
+# cgem0 and vp2 share one L2 segment. vp0 and vp1 stay out of it and are
+# routed, which is what the pf rules depend on.
 if_up -p cgem0
 ifconfig cgem0 up
 sysctl -w net.link.bridge.inherit_mac=1
-ifconfig bridge0 create up addm cgem0 addm vp0
+ifconfig bridge0 create up addm cgem0 addm vp2
 
 # The board's own address on the LAN. Without it the bridge exists, forwards
 # nothing to this host, and NAT for the guest networks has no address to
-# translate to -- pf.conf rewrites guest traffic to (bridge0), which is empty.
-# The host's address on the guest network, moved here from vp0 now that vp0 is
-# a bridge member. Keeping it means `ssh root@<guest>` from the host works
-# exactly as it did before the guest joined the bridge -- the two subnets share
-# one wire rather than one replacing the other.
-ifconfig bridge0 inet @QNX_HOST_GUEST_IP@ netmask 255.255.255.0 alias
-
+# translate to -- pf-nat.conf rewrites guest traffic to (bridge0).
 echo "machine bridge ip is @QNX_HOST_BRIDGE_IP@"
 echo "using @QNX_HOST_GATEWAY@ as gateway"
 ifconfig bridge0 @QNX_HOST_BRIDGE_IP@ netmask @QNX_HOST_BRIDGE_MASK@

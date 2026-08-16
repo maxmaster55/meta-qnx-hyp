@@ -137,6 +137,13 @@ QNX_HOST_LINUX_PEER ?= "/dev/qvm/guest_2/guest_to_host"
 QNX_HOST_LINUX_IP ?= "10.0.1.1"
 QNX_HOST_LINUX_NET ?= "10.0.1.0/24"
 
+# The QNX guest's third link, bound as vp2 and bridged onto the physical NIC so
+# SOME/IP multicast reaches the head unit. Must match the `name` of the
+# guest_to_lan vdev in qnx-guest.qvmconf.
+#
+# Bridged, and therefore has no address on this side -- see .vdev_net_start.sh.
+QNX_HOST_GUEST_LAN_PEER ?= "/dev/qvm/guest_1/guest_to_lan"
+
 # ---------------------------------------------------------------------------
 # The board's own address on the LAN
 # ---------------------------------------------------------------------------
@@ -249,7 +256,7 @@ QNX_HOST_PF_NAT = "${@chr(10).join('nat on %s inet from %s to !%s -> (%s)' % (i,
 # known-good on the board, and that is a separate change from fixing DNS.
 do_generate_buildfile[vardeps] += "QNX_HOST_DNS QNX_HOST_RESOLV \
                                    QNX_HOST_HMS_PRIORITY QNX_HOST_HMS_WAIT \
-                                   QNX_HOST_RECORD_SIZE \
+                                   QNX_HOST_RECORD_SIZE QNX_HOST_GUEST_LAN_PEER \
                                    QNX_HOST_NAT_IFS QNX_HOST_NAT_NETS \
                                    QNX_HOST_PF_NAT"
 
