@@ -19,7 +19,11 @@ QNX_ROOTFS_TEMPLATE = "${S}/qnx-host-data.build.in"
 # itself goes in the IFS with the rest of the host image. They are here because
 # the service rewrites both at runtime and an IFS is read-only, and this is what
 # puts them in this recipe's sysroot for the template to name.
-QNX_ROOTFS_INSTALL = "wifi-service ssh-hostkeys"
+#
+# hms is different: the whole binary is here, not just writable state -- see
+# the comment on QNX_IFS_INSTALL in qnx-host-image_1.0.bb for why. This is what
+# puts it in this recipe's sysroot for the template to place at /bin/hms.
+QNX_ROOTFS_INSTALL = "wifi-service ssh-hostkeys hms"
 
 QNX_ROOTFS_SIZE = "512M"
 QNX_ROOTFS_MIN = "64M"

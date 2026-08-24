@@ -16,6 +16,19 @@
 [type=dir] /scripts
 [type=dir] /guests
 
+################################################################################
+## hms itself, not just its writable state -- the whole binary.
+##
+## Everything else this template names is here because it has to be written at
+## runtime or survive a reboot; hms is here because it changes constantly
+## during development and an IFS does not. .hms-start.sh (in the IFS, staged by
+## qnx-host-image) execs /bin/hms after this partition is already mounted over
+## /, so this entry is what it finds -- and updating hms from here on is
+## `scp build/hms root@host:/bin/hms`, no image rebuild, no reflash.
+################################################################################
+[type=dir] /bin
+[perms=0755] /bin/hms = @QNX_ROOTFS_SYSROOT@/hms/hms
+
 # wifi-service's two wpa_supplicant configurations, and the directory it
 # rewrites them in.
 #

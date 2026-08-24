@@ -38,13 +38,15 @@ do_compile() {
 }
 
 do_install() {
-	install -d ${D}${QNX_STAGE_BINDIR}
-	install -m 0755 ${B}/hms ${D}${QNX_STAGE_BINDIR}/hms
-
-	# /etc/hms.conf is where the program looks. Staged outside the processor
-	# tree so the automatic IFS pass leaves it alone -- /etc is on no mkifs
-	# search path, so it is placed by the record below instead.
+	# The binary is staged outside the processor tree (${QNX_STAGE_DIR}/hms,
+	# not ${QNX_STAGE_BINDIR}) so the automatic IFS pass does not pick it up --
+	# see qnx-host-image_1.0.bb, which reads it from here into the data
+	# partition instead. hms used to be QNX_IFS_INSTALL: every fix to it meant
+	# rebuilding and reflashing the whole read-only boot image to change one
+	# binary. On the writable partition, a new hms is `scp build/hms
+	# root@host:/bin/hms` -- no image rebuild, no reflash.
 	install -d ${D}${QNX_STAGE_DIR}/hms
+	install -m 0755 ${B}/hms ${D}${QNX_STAGE_DIR}/hms/hms
 	install -m 0644 ${S}/config/hms.conf ${D}${QNX_STAGE_DIR}/hms/
 }
 

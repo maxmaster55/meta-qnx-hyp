@@ -35,20 +35,35 @@ QNX_IFS_INSTALL = "qnx-base-runtime qnx-block qnx-io-sock \
                    qnx-net-tools qnx-diag-tools qnx-fs-tools qnx-login \
                    qnx-usb qnx-hid qnx-screen qnx-gfx-demos qnx-gfx-demos-rpi5 qnx-ssh \
                    packagegroup-qnx-hyp-common motor-data-producer qnx-host-conf \
-                   wifi-service hms mosquitto \
+                   wifi-service mosquitto \
                    libepoxy virglrenderer vdev-virtio-gpu"
 
-# hms manages the guests -- it reads /guests, execs qvm and takes commands over
-# MQTT -- so it belongs on the host by definition; inside a guest there would be
-# nothing to manage. mosquitto comes with it: hms links libmosquitto.so.1, and
-# an image with the binary and not the library gets a process that dies at
-# startup with ELIBACC rather than anything that names the missing library.
+# hms is NOT in the list above any more -- it comes from qnx-host-data's
+# QNX_ROOTFS_INSTALL instead (see qnx-host-data_1.0.bb), so the binary lands on
+# the writable data partition rather than this read-only IFS.
 #
-# Both are started by the boot script now. hms goes after the data partition is
-# mounted, since it reads /guests to discover what it can manage and that
-# directory does not exist before then. It still needs the private key from
-# QNX_SSH_IDENTITY to reach a guest -- without it hms runs, answers the broker,
-# and fails at the ssh on every guest operation.
+# It used to be here, and every fix to it meant rebuilding and reflashing this
+# whole image to change one binary -- the same cost as fixing a driver, for a
+# management agent that changes far more often. Nothing about hms needs the IFS
+# specifically: it is not needed before the data partition is mounted (it reads
+# /guests, which does not exist before then), and it is not on anyone's boot
+# critical path the way a filesystem or network driver is. On the data
+# partition, a new hms is `scp build/hms root@host:/bin/hms` -- no image
+# rebuild, no reflash, and .hms-start.sh finds it at the same /bin/hms either
+# way, since it runs after the data partition is already mounted over /.
+#
+# mosquitto stays here, in the IFS: hms links libmosquitto.so.1, and an image
+# with the binary and not the library gets a process that dies at startup with
+# ELIBACC rather than anything that names the missing library. It costs nothing
+# to leave it where it always was -- it is the library, not the thing being
+# iterated on -- and QNX's pathname space resolves it the same way regardless
+# of which filesystem hms's own binary happens to load from.
+#
+# hms is started by the boot script, after the data partition is mounted, since
+# it reads /guests to discover what it can manage and that directory does not
+# exist before then. It still needs the private key from QNX_SSH_IDENTITY to
+# reach a guest -- without it hms runs, answers the broker, and fails at the
+# ssh on every guest operation.
 #
 # wifi-service is here rather than in the guest because bcm0 is this board's own
 # radio: the host owns it, the driver comes up on the io-sock boot line above,

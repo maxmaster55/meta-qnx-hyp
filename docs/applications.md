@@ -127,6 +127,13 @@ Runs on the host. Discovers guests under `/guests`, starts and stops them throug
 `qvm`, and takes commands over MQTT so a GUI client elsewhere can drive the
 board. OTA packages move by `scp`.
 
+**The binary lives on the data partition, not the IFS.** It is
+`QNX_ROOTFS_INSTALL` in `qnx-host-data_1.0.bb`, not `QNX_IFS_INSTALL` in
+`qnx-host-image_1.0.bb` — deliberately, since `hms` changes far more often than
+anything else in this image and used to cost a full image rebuild and reflash
+per fix. Updating it now is `scp build/hms root@host:/bin/hms`; `hms.conf`
+still lives in the IFS (see below) and still needs a rebuild to change.
+
 **Started at boot, but not immediately.** `.hms-start.sh` waits for the wifi to
 have an address before exec'ing it, because hms's whole job is on the far side
 of a broker on the public internet and the route there comes from the dhcpcd
