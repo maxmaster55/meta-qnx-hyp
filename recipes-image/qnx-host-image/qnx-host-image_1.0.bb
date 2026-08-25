@@ -35,22 +35,43 @@ QNX_IFS_INSTALL = "qnx-base-runtime qnx-block qnx-io-sock \
                    qnx-net-tools qnx-diag-tools qnx-fs-tools qnx-login \
                    qnx-usb qnx-hid qnx-screen qnx-gfx-demos qnx-gfx-demos-rpi5 qnx-ssh \
                    packagegroup-qnx-hyp-common motor-data-producer qnx-host-conf \
-                   wifi-service mosquitto guest-launch \
+                   wifi-service hms mosquitto guest-launch \
                    libepoxy virglrenderer vdev-virtio-gpu"
 
-# hms is NOT in the list above any more -- it comes from qnx-host-data's
-# QNX_ROOTFS_INSTALL instead (see qnx-host-data_1.0.bb), so the binary lands on
-# the writable data partition rather than this read-only IFS.
+# hms is listed above for its CONFIG, not its binary.
 #
-# It used to be here, and every fix to it meant rebuilding and reflashing this
-# whole image to change one binary -- the same cost as fixing a driver, for a
-# management agent that changes far more often. Nothing about hms needs the IFS
-# specifically: it is not needed before the data partition is mounted (it reads
-# /guests, which does not exist before then), and it is not on anyone's boot
-# critical path the way a filesystem or network driver is. On the data
-# partition, a new hms is `scp build/hms root@host:/bin/hms` -- no image
-# rebuild, no reflash, and .hms-start.sh finds it at the same /bin/hms either
-# way, since it runs after the data partition is already mounted over /.
+# qnx-ifs.bbclass's read_dropins() (see qnx-ifs.bbclass around
+# qnx_ifs_expand_install) only reads a component's *.files dropin -- which is
+# what QNX_IFS_EXTRA_ENTRIES turns into, and hms.conf is a QNX_IFS_EXTRA_ENTRIES
+# entry in hms_1.0.bb -- for names that appear in THIS image's QNX_IFS_INSTALL.
+# Dropping hms from this list entirely (the first attempt at moving its binary
+# off the IFS) silently broke that: hms's own do_install still writes the
+# dropin naming /etc/hms.conf, but nothing here asked for hms's dropin any
+# more, so it was never read and hms.conf stopped landing in the image with no
+# warning from anything -- a board came up with hms running and no
+# /etc/hms.conf, which meant no configured ssh key, which meant every
+# automated ssh call had no key to use and no explanation why. Chased for the
+# better part of an hour before the missing file turned out to be the cause.
+#
+# hms is back in this list to restore that dropin read. Its BINARY still does
+# not end up in the IFS: hms_1.0.bb stages it at ${QNX_STAGE_DIR}/hms/hms now,
+# not ${QNX_STAGE_BINDIR}, so the automatic harvest below (which only sweeps
+# QNX_IFS_SEARCHABLE_DIRS) does not pick it up -- at most a harmless
+# "outside the mkifs search path" bb.warn, the same one hms.conf's own
+# placement has always triggered here. The binary still comes from
+# qnx-host-data's QNX_ROOTFS_INSTALL (see qnx-host-data_1.0.bb), on the
+# writable data partition.
+#
+# It used to be here for the binary too, and every fix to it meant rebuilding
+# and reflashing this whole image to change one userspace program -- the same
+# cost as fixing a driver, for a management agent that changes far more often.
+# Nothing about hms's binary needs the IFS specifically: it is not needed
+# before the data partition is mounted (it reads /guests, which does not
+# exist before then), and it is not on anyone's boot critical path the way a
+# filesystem or network driver is. On the data partition, a new hms is
+# `scp build/hms root@host:/bin/hms` -- no image rebuild, no reflash, and
+# .hms-start.sh finds it at the same /bin/hms either way, since it runs after
+# the data partition is already mounted over /.
 #
 # mosquitto stays here, in the IFS: hms links libmosquitto.so.1, and an image
 # with the binary and not the library gets a process that dies at startup with

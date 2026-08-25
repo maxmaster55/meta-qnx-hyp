@@ -151,12 +151,21 @@ Runs on the host. Discovers guests under `/guests`, starts and stops them throug
 `qvm`, and takes commands over MQTT so a GUI client elsewhere can drive the
 board. OTA packages move by `scp`.
 
-**The binary lives on the data partition, not the IFS.** It is
-`QNX_ROOTFS_INSTALL` in `qnx-host-data_1.0.bb`, not `QNX_IFS_INSTALL` in
-`qnx-host-image_1.0.bb` — deliberately, since `hms` changes far more often than
-anything else in this image and used to cost a full image rebuild and reflash
-per fix. Updating it now is `scp build/hms root@host:/bin/hms`; `hms.conf`
-still lives in the IFS (see below) and still needs a rebuild to change.
+**The binary lives on the data partition, not the IFS; the config still does.**
+The binary comes from `QNX_ROOTFS_INSTALL` in `qnx-host-data_1.0.bb` — deliberately,
+since `hms` changes far more often than anything else in this image and used to
+cost a full image rebuild and reflash per fix. Updating it now is
+`scp build/hms root@host:/bin/hms`.
+
+`hms` is *also* still named in `QNX_IFS_INSTALL` in `qnx-host-image_1.0.bb`, and
+that is not a leftover: `qnx-ifs.bbclass` only reads a component's dropin (the
+mechanism `QNX_IFS_EXTRA_ENTRIES` — i.e. `hms.conf` — travels through) for names
+listed there. Drop `hms` from that list entirely and `hms.conf` silently stops
+being placed in the image; no warning, hms starts and answers the broker and
+every ssh call it makes just has no key configured. That happened once already —
+see the comment on `QNX_IFS_INSTALL` in `qnx-host-image_1.0.bb` for the full
+story. The binary itself still does not end up in the IFS despite the listing,
+because it now stages outside the auto-harvested tree.
 
 **Started at boot, but not immediately.** `.hms-start.sh` waits for the wifi to
 have an address before exec'ing it, because hms's whole job is on the far side
