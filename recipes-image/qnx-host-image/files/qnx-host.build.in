@@ -188,7 +188,24 @@
     /proc/boot/.wifi-start.sh &
 
     ############################################################################
-    ## Applications, ordered by QNX_IFS_STARTUP_AFTER dependencies.
+    ## The guests' recording volumes, created on the card rather than shipped --
+    ## and BEFORE anything that can launch a guest. guest-1's .qvmconf attaches
+    ## record.img as a virtio-blk hostdev, and on a freshly flashed card that
+    ## file does not exist until this creates it: a guest launcher running
+    ## ahead of this line would hand qvm a config whose backing file is missing.
+    ## Sparse creation costs nothing, so neither does the earlier slot.
+    ############################################################################
+    display_msg "Ensuring guest recording volumes exist ..."
+    /proc/boot/.record-create.sh
+
+    ############################################################################
+    ## Applications, ordered by QNX_IFS_STARTUP_AFTER dependencies -- recipes'
+    ## QNX_IFS_STARTUP_CMD lines land here.
+    ##
+    ## Today that is guest-launch, which starts every discovered guest: after
+    ## the data partition mount above (its /guests is what it reads) and before
+    ## hms below, whose discoverer adopts guests it did not start itself. See
+    ## .record-create.sh above for why it must not come before that either.
     ############################################################################
 @QNX_IFS_STARTUP@
 
@@ -197,8 +214,8 @@
     ## function before the driver claims the bus.
     ##
     ## The config path is the SDP's standard location, which is where the
-    ## qnx-host-conf fragment writes it -- the reference BSP kept its copy on the
-    ## data partition at /system/etc/spi.conf instead, so a board carrying an old
+    ## qnx-host-conf fragment writes it -- the reference BSP kept its copy on
+    ## the data partition at /system/etc/spi.conf instead, so a board carrying an old
     ## data partition has the file in both places and this line picks the one in
     ## the image.
     ##
@@ -217,7 +234,7 @@
     ############################################################################
     ## Management agent.
     ##
-    ## Last, and after the data partition is mounted: hms reads /guests to
+    ## After the data partition is mounted: hms reads /guests to
     ## discover what it can start, and that directory only exists once
     ## .storage-server.sh has mounted the disk. Started earlier it finds an empty
     ## /guests and manages nothing.
@@ -232,10 +249,6 @@
     ############################################################################
     ## Backgrounded, and it waits for the wifi before exec'ing hms -- see
     ## .hms-start.sh, which is also where the priority is applied.
-    ## The guests' recording volumes, created on the card rather than shipped.
-    display_msg "Ensuring guest recording volumes exist ..."
-    /proc/boot/.record-create.sh
-
     display_msg "Starting hypervisor management system ..."
     /proc/boot/.hms-start.sh &
 

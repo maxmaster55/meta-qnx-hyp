@@ -35,7 +35,7 @@ QNX_IFS_INSTALL = "qnx-base-runtime qnx-block qnx-io-sock \
                    qnx-net-tools qnx-diag-tools qnx-fs-tools qnx-login \
                    qnx-usb qnx-hid qnx-screen qnx-gfx-demos qnx-gfx-demos-rpi5 qnx-ssh \
                    packagegroup-qnx-hyp-common motor-data-producer qnx-host-conf \
-                   wifi-service mosquitto \
+                   wifi-service mosquitto guest-launch \
                    libepoxy virglrenderer vdev-virtio-gpu"
 
 # hms is NOT in the list above any more -- it comes from qnx-host-data's

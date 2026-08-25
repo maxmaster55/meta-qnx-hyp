@@ -21,6 +21,7 @@ to meta-qnx to make this layer work, meta-qnx is not generic enough yet.
 | `bitbake wifi-service` | WiFi provisioning via a phone hotspot |
 | `bitbake qnx-host-conf` | Screen display configuration and its start script, plus the wifi credentials file |
 | `bitbake vdev-virtio-gpu` | Host-side virtio-gpu vdev, with `virglrenderer` and `libepoxy` (meson) beneath it |
+| `bitbake guest-launch` | `/scripts/start-guests.sh`: starts every discovered guest under qvm at host boot |
 
 ## Where sources come from
 

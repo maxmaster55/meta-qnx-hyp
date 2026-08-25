@@ -15,6 +15,7 @@ from the recipe.
 | `shm-chunker` | `…/shm-chunker` | — | no |
 | `qt-cluster` | `…/qt-cluster` | guest-1 `rootfs.img` | by `start-guest1.sh` |
 | `hms` | `…/hms` | host | no |
+| `guest-launch` (`start-guests.sh`) | this tree | host | **yes**, from the boot script |
 | `wifi-service` | `…/wifi-service` | host | no |
 | `spi-loopback` | `…/spi_loopback` | guest-1 | no |
 | `rpi-gpio` | `…/rpi-gpio` | both, via packagegroup | yes |
@@ -120,6 +121,29 @@ compile-time constant (`MQTT_BROKER` in `mqtt_client.h`), so retargeting it mean
 changing the application. Its save directory is `-d <dir>`, defaulting to `/tmp`
 — which is RAM on the guest, so recordings meant to survive a reboot want a path
 on the mounted data disk.
+
+## guest-launch — the guests start themselves
+
+`/scripts/start-guests.sh`, run by the boot script from `QNX_IFS_STARTUP_CMD`.
+It walks `/guests`, launches one qvm per directory holding a `.qvmconf`, and
+skips anything already running — so it is safe to re-run by hand. The launch
+copies hms's `guest_start()` exactly (cwd, stdio cut off, output to
+`qvm.log`), which is not imitation for its own sake: hms's discoverer adopts a
+running guest it did not start only when it can match a qvm process to the
+guest, and matching works off the command line and log layout this script
+produces.
+
+Ordering, all three ends load-bearing:
+
+| | why |
+| --- | --- |
+| after the data partition mount | `/guests` is on it; earlier there is nothing to launch |
+| after `.record-create.sh` | guest-1's `.qvmconf` attaches `record.img`; on a fresh card that file exists only once that script has made it |
+| before hms | the manager comes up to guests already running and adopts them, instead of starting from an empty list |
+
+Which guests start is decided by which directories are on the disk — the same
+rule hms discovers by. To keep a guest out of autostart, remove it from the
+disk, not from the script.
 
 ## hms — Hypervisor Management System
 
