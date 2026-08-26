@@ -50,9 +50,12 @@ do_install() {
 	install -m 0644 ${S}/config/hms.conf ${D}${QNX_STAGE_DIR}/hms/
 }
 
-QNX_IFS_EXTRA_ENTRIES = "\
-/etc/hms.conf=@QNX_IFS_ROOT@/hms/hms.conf\
-"
+# No QNX_IFS_EXTRA_ENTRIES. hms.conf goes on the data partition beside the
+# binary, placed by qnx-host-data.build.in -- it used to be the one part of hms
+# that still cost an image rebuild and a reflash to change, which is exactly
+# backwards for the file holding the broker address. It is read by hms itself,
+# long after .storage-server.sh has union-mounted that partition over /, so
+# /etc/hms.conf resolves to this copy either way.
 
 # Not started at boot. It is a management agent that reaches an MQTT broker over
 # the network and can start and stop guests, so when it runs is a decision, not
@@ -64,6 +67,6 @@ QNX_IFS_EXTRA_ENTRIES = "\
 #   /.ssh/id_ed25519 for the OTA server. Keys belong on a board, not in a layer;
 #   the repository carries only the public half.
 #
-#   A broker it can reach. The address is in /etc/hms.conf, which is in the IFS
-#   and therefore read-only -- edit it here and rebuild, or point the config at
-#   a copy on the data partition if it needs to change on a running board.
+#   A broker it can reach. The address is in /etc/hms.conf, on the data
+#   partition -- so changing it on a board that is already flashed is an edit in
+#   place, or `scp hms.conf root@host:/etc/hms.conf`, rather than a rebuild.

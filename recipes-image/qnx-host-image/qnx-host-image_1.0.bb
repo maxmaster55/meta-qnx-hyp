@@ -34,44 +34,67 @@ QNX_IFS_INSTALL = "qnx-base-runtime qnx-block qnx-io-sock \
                    qnx-pci qnx-pci-rpi5 qnx-net-rpi5 qnx-storage-sdmmc-rpi5 \
                    qnx-net-tools qnx-diag-tools qnx-fs-tools qnx-login \
                    qnx-usb qnx-hid qnx-screen qnx-gfx-demos qnx-gfx-demos-rpi5 qnx-ssh \
-                   packagegroup-qnx-hyp-common motor-data-producer qnx-host-conf \
-                   wifi-service hms mosquitto guest-launch \
+                   packagegroup-qnx-hyp-common qnx-host-conf \
+                   mosquitto guest-launch \
                    libepoxy virglrenderer vdev-virtio-gpu"
 
-# hms is listed above for its CONFIG, not its binary.
+# THE APPLICATIONS ARE NOT IN THE LIST ABOVE. hms, wifi_service and
+# motor_data_producer all come from qnx-host-data's QNX_ROOTFS_INSTALL instead
+# (see qnx-host-data_1.0.bb), so their binaries land on the writable data
+# partition rather than this read-only IFS. So does every file they read.
 #
-# qnx-ifs.bbclass's read_dropins() (see qnx-ifs.bbclass around
-# qnx_ifs_expand_install) only reads a component's *.files dropin -- which is
-# what QNX_IFS_EXTRA_ENTRIES turns into, and hms.conf is a QNX_IFS_EXTRA_ENTRIES
-# entry in hms_1.0.bb -- for names that appear in THIS image's QNX_IFS_INSTALL.
-# Dropping hms from this list entirely (the first attempt at moving its binary
-# off the IFS) silently broke that: hms's own do_install still writes the
-# dropin naming /etc/hms.conf, but nothing here asked for hms's dropin any
-# more, so it was never read and hms.conf stopped landing in the image with no
-# warning from anything -- a board came up with hms running and no
-# /etc/hms.conf, which meant no configured ssh key, which meant every
-# automated ssh call had no key to use and no explanation why. Chased for the
-# better part of an hour before the missing file turned out to be the cause.
+# They used to be here, and every fix to one meant rebuilding and reflashing
+# this whole image to change one binary -- the same cost as fixing a driver, for
+# code that changes far more often than any driver does. Nothing about them
+# needs the IFS specifically: none is on the boot critical path the way a
+# filesystem or network driver is, and none runs before .storage-server.sh has
+# union-mounted the data partition over / -- hms reads /guests, which does not
+# exist before then; wifi_service is started well after it; motor_data_producer
+# is not started at boot at all. On the data partition, updating one is
+# `scp build/hms root@host:/bin/hms` -- no image rebuild, no reflash -- and
+# every path resolves the same either way, because the mount is a union and
+# /bin/hms, /bin/wifi_service and /usr/bin/motor_data_producer are on the same
+# PATH they always were.
 #
-# hms is back in this list to restore that dropin read. Its BINARY still does
-# not end up in the IFS: hms_1.0.bb stages it at ${QNX_STAGE_DIR}/hms/hms now,
-# not ${QNX_STAGE_BINDIR}, so the automatic harvest below (which only sweeps
-# QNX_IFS_SEARCHABLE_DIRS) does not pick it up -- at most a harmless
-# "outside the mkifs search path" bb.warn, the same one hms.conf's own
-# placement has always triggered here. The binary still comes from
-# qnx-host-data's QNX_ROOTFS_INSTALL (see qnx-host-data_1.0.bb), on the
-# writable data partition.
+# ---------------------------------------------------------------------------
+# READ THIS BEFORE REMOVING ANYTHING FROM THE LIST ABOVE
+# ---------------------------------------------------------------------------
+# This list does not only decide which binaries are swept into the image. It
+# also decides whose DROPINS get read at all.
 #
-# It used to be here for the binary too, and every fix to it meant rebuilding
-# and reflashing this whole image to change one userspace program -- the same
-# cost as fixing a driver, for a management agent that changes far more often.
-# Nothing about hms's binary needs the IFS specifically: it is not needed
-# before the data partition is mounted (it reads /guests, which does not
-# exist before then), and it is not on anyone's boot critical path the way a
-# filesystem or network driver is. On the data partition, a new hms is
-# `scp build/hms root@host:/bin/hms` -- no image rebuild, no reflash, and
-# .hms-start.sh finds it at the same /bin/hms either way, since it runs after
-# the data partition is already mounted over /.
+# qnx-ifs.bbclass's read_dropins() iterates the expanded QNX_IFS_INSTALL and
+# reads each member's <pn>.files and <pn>.startup out of the dropin directory.
+# Those two files are what QNX_IFS_EXTRA_ENTRIES and QNX_IFS_STARTUP_CMD turn
+# into. A recipe that is not in this list therefore contributes NEITHER, even
+# though its own do_install wrote the dropin perfectly well and nothing warns
+# that it went unread.
+#
+# That has already cost an evening once. hms was dropped from this list to get
+# its binary out of the IFS, which also stopped /etc/hms.conf being placed --
+# silently. The board came up with hms running, no config, therefore no ssh key,
+# and every automated ssh call failing for no stated reason. See cdfa11c.
+#
+# So removing a recipe from this list is only safe when you have accounted for
+# its dropins, and each of the three above was moved that way rather than merely
+# delisted:
+#
+#   hms                   QNX_IFS_EXTRA_ENTRIES deleted from hms_1.0.bb;
+#                         /etc/hms.conf is a record in qnx-host-data.build.in
+#   motor-data-producer   same, for /etc/motor/config.json
+#   wifi-service          had no dropins to lose
+#
+# guest-launch is the counter-example that proves the rule, and it is why that
+# recipe is STILL in the list. Its file, /scripts/start-guests.sh, is on the data
+# partition -- but QNX_IFS_STARTUP_CMD is a dropin too, so delisting it would
+# have deleted the boot script's line that runs the thing. The wiring stays in
+# the IFS; only the file it names moved. qnx-host-conf is in the list twice over
+# for the same reason, split the other way: its two display files are genuine IFS
+# entries because host-graphics-start.sh runs above .storage-server.sh, while its
+# wpa_supplicant.conf moved to the disk.
+#
+# The line to draw is boot order, not size. What stays here is what runs before
+# that mount or is needed to reach it: qnx-host-conf, guest-launch, rpi-gpio via
+# packagegroup-qnx-hyp-common, and the SDP components.
 #
 # mosquitto stays here, in the IFS: hms links libmosquitto.so.1, and an image
 # with the binary and not the library gets a process that dies at startup with
@@ -86,7 +109,7 @@ QNX_IFS_INSTALL = "qnx-base-runtime qnx-block qnx-io-sock \
 # reach a guest -- without it hms runs, answers the broker, and fails at the
 # ssh on every guest operation.
 #
-# wifi-service is here rather than in the guest because bcm0 is this board's own
+# wifi-service belongs to the host rather than the guest because bcm0 is this board's own
 # radio: the host owns it, the driver comes up on the io-sock boot line above,
 # and its firmware is the SDP's bcm43455_firmware_pkg. A guest under qvm has
 # virtio interfaces and no radio to configure.

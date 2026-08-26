@@ -33,12 +33,20 @@ do_install() {
 	install -m 0755 ${WORKDIR}/start-guests.sh ${D}${QNX_GUEST_LAUNCH_DIR}/start-guests.sh
 }
 
-# @QNX_IFS_ROOT@ (at-signs, not ${...}) because the path depends on which image
-# installs this recipe and is unknowable at parse time; the image expands it
-# when merging the fragment.
-QNX_IFS_EXTRA_ENTRIES = "\
-[perms=0755] /scripts/start-guests.sh=@QNX_IFS_ROOT@/guest-launch/start-guests.sh\
-"
+# No QNX_IFS_EXTRA_ENTRIES: the script itself is on the DATA PARTITION, placed
+# at /scripts/start-guests.sh by qnx-host-data.build.in.
+#
+# This recipe still belongs to QNX_IFS_INSTALL all the same, and the split is
+# the point. QNX_IFS_STARTUP_CMD below is a LINE IN THE BOOT SCRIPT, and that
+# line is only emitted for recipes the image installs -- so the wiring has to
+# stay in the IFS. The file it names does not: the boot script reaches this
+# marker after .storage-server.sh has union-mounted the partition over /, which
+# is what makes /scripts/start-guests.sh resolve to the copy on the disk.
+#
+# Which is the copy worth having. Guest launch policy -- what qvm is given, how
+# stdio is cut off, what is skipped -- is the kind of thing that gets changed
+# while a board is on the bench, and in the IFS every change was a rebuild and a
+# reflash. Here it is an edit in place.
 
 # ---------------------------------------------------------------------------
 # Started from the boot script, which puts this line at @QNX_IFS_STARTUP@ --

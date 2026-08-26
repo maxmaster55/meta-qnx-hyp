@@ -6,22 +6,90 @@ from the recipe.
 
 ## The map
 
-| Application | Repository | Image | Started at boot? |
+Every application lives on a **writable partition**, not in an IFS. On the host
+that is the QNX6 data partition `qnx-host-data` builds, union-mounted at `/` by
+`.storage-server.sh`; in guest-1 it is `rootfs.img`, union-mounted at `/` by
+`.rootfs-mount.sh`. See [Why the applications are not in the IFS](#why-the-applications-are-not-in-the-ifs).
+
+| Application | Repository | Where | Started at boot? |
 | --- | --- | --- | --- |
-| `motor-data-producer` | `PM-Maestro-ITI-GP-Org/motor-data-producer` | host **and** guest-1 | no |
-| `motor-ai-client` | `…/motor_ai_client` | guest-1 | by `start-guest1.sh` |
+| `motor-data-producer` | `PM-Maestro-ITI-GP-Org/motor-data-producer` | host data partition **and** guest-1 `rootfs.img` | no |
+| `motor-ai-client` | `…/motor_ai_client` | guest-1 `rootfs.img` | by `start-guest1.sh` |
 | `motor-ai-server` | `…/motor_ai_server` | guest-2 (Linux) | yes, systemd |
-| `motor-recorder` | `…/motor-recorder` | guest-1 | no |
+| `motor-recorder` | `…/motor-recorder` | guest-1 `rootfs.img` | by `start-guest1.sh` |
+| `motor-diag-service` | `…/motor-diag-service` | guest-1 `rootfs.img` | by `start-guest1.sh` |
+| `fault-tester` | `…/fault-tester` | guest-1 `rootfs.img` | no |
 | `shm-chunker` | `…/shm-chunker` | — | no |
 | `qt-cluster` | `…/qt-cluster` | guest-1 `rootfs.img` | by `start-guest1.sh` |
-| `hms` | `…/hms` | host | no |
-| `guest-launch` (`start-guests.sh`) | this tree | host | **yes**, from the boot script |
-| `wifi-service` | `…/wifi-service` | host | no |
-| `spi-loopback` | `…/spi_loopback` | guest-1 | no |
-| `rpi-gpio` | `…/rpi-gpio` | both, via packagegroup | yes |
+| `hms` | `…/hms` | host data partition | **yes**, `.hms-start.sh` |
+| `guest-launch` (`start-guests.sh`) | this tree | host data partition (its boot-script line is in the **IFS**) | **yes**, from the boot script |
+| `wifi-service` | `…/wifi-service` | host data partition | no |
+| `spi-loopback` | `…/spi_loopback` | guest-1 `rootfs.img` | no |
+| `rpi-gpio` | `…/rpi-gpio` | both **IFS**es, via packagegroup | yes |
 
-Supporting libraries: `mosquitto` (both images), `font-dejavu` (guest-1
-`rootfs.img`), `packagegroup-qnx-someip` (guest-1).
+Supporting libraries stay in the IFS: `mosquitto` (both images),
+`packagegroup-qnx-someip` (guest-1). `font-dejavu` is on guest-1 `rootfs.img`
+for its size.
+
+## Why the applications are not in the IFS
+
+An IFS is read-only and RAM-resident, and it is baked into the flashable card
+image. Changing one application binary inside one therefore costs a full image
+rebuild and a reflash — the price of fixing a driver, paid for code that changes
+every day. On a writable partition the same fix is
+
+```bash
+scp build/hms          root@host:/bin/hms
+scp motor_recorder     root@10.0.0.2:/bin/motor_recorder
+```
+
+Both mounts are **unions**, so nothing about any path changes: `/bin`,
+`/usr/bin` and `/etc` on the disk merge with the IFS's, and every launcher finds
+the same name it always used.
+
+**The configuration moved with the binaries**, and that is the same argument:
+a binary replaceable with an `scp` is not much use if the file telling it which
+broker, which network, which guests or which display still costs a reflash.
+
+| Config | Now on | Read by |
+| --- | --- | --- |
+| `/etc/hms.conf` | host data partition | `hms` |
+| `/etc/wpa_supplicant.conf` | host data partition | `.wifi-start.sh` → `wpa_supplicant` |
+| `/etc/wifi/wpa_supplicant_{default,real}.conf` | host data partition | `wifi_service` (always were — it rewrites them) |
+| `/etc/motor/config.json` | both writable partitions | `motor_data_producer` |
+| `/scripts/start-guests.sh` | host data partition | the host boot script |
+| `/scripts/start-guest1.sh` | guest-1 `rootfs.img` | the guest boot script |
+| `/scripts/graphics-virtio-start.sh`, `/usr/share/screen/graphics-*.conf` | guest-1 `rootfs.img` | `start-guest1.sh` → Screen |
+| `/Motor_AI_Client/vsomeip.json`, `/etc/motor-ai-client/client.conf`, `/etc/commonapi*.ini` | guest-1 `rootfs.img` | `motor_ai_client` |
+
+`start-guest1.sh` is the one worth calling out: it decides what guest-1 does at
+boot — which applications start, in what order, with which arguments, and how
+they are restarted. It was an inline block in the guest IFS template, so every
+change to any of that was an image rebuild and a reflash.
+
+**The line is boot order, not size.** What stays in an IFS is what runs before
+its partition is mounted, or is needed to reach it:
+
+| Stays in the IFS | why |
+| --- | --- |
+| `rpi-gpio`, `spi-dwc`, the BSP drivers | guest-1 starts SPI and GPIO several lines before `.rootfs-mount.sh` |
+| `qnx-host-conf`'s two display files | `host-graphics-start.sh` ends in `waitfor /dev/screen` and runs before `.storage-server.sh`. Only those two — its `wpa_supplicant.conf` moved |
+| `guest-launch`, the *recipe* | the boot script execs it through `@QNX_IFS_STARTUP@`, which only emits its line for `QNX_IFS_INSTALL` members. The wiring stays; the script it names does not |
+| `/etc/io-sock.conf`, `/etc/pf-nat.conf`, `/etc/qwdi_wifi.conf`, `/var/spi.conf`, the PCI configs | read by drivers that come up long before either mount |
+| `libmosquitto`, the SOME/IP runtime | libraries, not code anyone iterates on — and a union mount resolves a `DT_NEEDED` soname the same way whichever filesystem the binary came from |
+| the SDP components | the boot itself |
+
+Which side a recipe lands on is one word: `QNX_IFS_INSTALL` in the image recipe,
+or `QNX_ROOTFS_INSTALL` in `qnx-host-data` / `qnx-guest-rootfs`. A binary staged
+in the processor tree's `bin` or `usr/bin` then needs nothing more — both
+partition templates map those trees whole. Anything on no search path — a config
+file under `/etc`, a script under `/scripts` — needs an explicit record in that
+partition's `.build.in` template, exactly as it needed a
+`QNX_IFS_EXTRA_ENTRIES` record before.
+
+`guest-launch` is the case that shows the two are separable: the recipe is in
+`QNX_IFS_INSTALL` **and** `QNX_ROOTFS_INSTALL`, contributing its boot-script
+line to one and its file to the other.
 
 ## The motor data path
 
@@ -126,7 +194,13 @@ on the mounted data disk.
 
 `/scripts/start-guests.sh`, run by the boot script from `QNX_IFS_STARTUP_CMD`.
 It walks `/guests`, launches one qvm per directory holding a `.qvmconf`, and
-skips anything already running — so it is safe to re-run by hand. The launch
+skips anything already running — so it is safe to re-run by hand.
+
+The **script is on the data partition**; only the boot-script line that runs it
+is in the IFS, because `QNX_IFS_STARTUP_CMD` emits that line for members of
+`QNX_IFS_INSTALL` and nothing else. That line sits below the mount, so the path
+resolves to the copy on the disk — and launch policy becomes an edit in place
+rather than a reflash. The launch
 copies hms's `guest_start()` exactly (cwd, stdio cut off, output to
 `qvm.log`), which is not imitation for its own sake: hms's discoverer adopts a
 running guest it did not start only when it can match a qvm process to the
@@ -151,21 +225,32 @@ Runs on the host. Discovers guests under `/guests`, starts and stops them throug
 `qvm`, and takes commands over MQTT so a GUI client elsewhere can drive the
 board. OTA packages move by `scp`.
 
-**The binary lives on the data partition, not the IFS; the config still does.**
-The binary comes from `QNX_ROOTFS_INSTALL` in `qnx-host-data_1.0.bb` — deliberately,
+**The binary and its configuration both live on the data partition, not the
+IFS.** Both are `QNX_ROOTFS_INSTALL` in `qnx-host-data_1.0.bb` — deliberately,
 since `hms` changes far more often than anything else in this image and used to
 cost a full image rebuild and reflash per fix. Updating it now is
-`scp build/hms root@host:/bin/hms`.
 
-`hms` is *also* still named in `QNX_IFS_INSTALL` in `qnx-host-image_1.0.bb`, and
-that is not a leftover: `qnx-ifs.bbclass` only reads a component's dropin (the
-mechanism `QNX_IFS_EXTRA_ENTRIES` — i.e. `hms.conf` — travels through) for names
-listed there. Drop `hms` from that list entirely and `hms.conf` silently stops
-being placed in the image; no warning, hms starts and answers the broker and
-every ssh call it makes just has no key configured. That happened once already —
-see the comment on `QNX_IFS_INSTALL` in `qnx-host-image_1.0.bb` for the full
-story. The binary itself still does not end up in the IFS despite the listing,
-because it now stages outside the auto-harvested tree.
+```bash
+scp build/hms       root@host:/bin/hms
+scp config/hms.conf root@host:/etc/hms.conf
+```
+
+hms was the first thing moved this way; everything else followed.
+
+> `hms` was briefly *also* named in `QNX_IFS_INSTALL` even though its binary was
+> already on the disk, and the reason is a trap worth knowing before you delist
+> anything. `qnx-ifs.bbclass` reads a recipe's dropin — the mechanism both
+> `QNX_IFS_EXTRA_ENTRIES` and `QNX_IFS_STARTUP_CMD` travel through — only for
+> names in the consuming image's `QNX_IFS_INSTALL`. Dropping `hms` from that list
+> to move its binary also stopped `hms.conf` being placed, with no warning from
+> anything: the board came up with hms running, no config, therefore no ssh key,
+> and every automated ssh call failing for no stated reason (see `cdfa11c`).
+> `hms.conf` is now a record in `qnx-host-data.build.in` and `hms_1.0.bb` has no
+> `QNX_IFS_EXTRA_ENTRIES` left, so there is no dropin to lose and the listing is
+> genuinely unnecessary. Delisting is safe **once the dropins are accounted
+> for** — and `guest-launch` shows the other outcome: its file moved to the disk
+> but the recipe stays listed, because its `QNX_IFS_STARTUP_CMD` is a dropin too
+> and delisting would have deleted the boot-script line that runs it.
 
 **Started at boot, but not immediately.** `.hms-start.sh` waits for the wifi to
 have an address before exec'ing it, because hms's whole job is on the far side
@@ -197,8 +282,10 @@ It needs an ssh key pair that no layer supplies. See
 [ssh.md](../../meta-qnx/docs/ssh.md) — `QNX_SSH_IDENTITY` in `local.conf` is the
 one thing you must set for it to reach a guest at all.
 
-`/etc/hms.conf` is in the IFS and therefore read-only. Changing the broker
-address means editing it here and rebuilding.
+`/etc/hms.conf` is on the data partition, so changing the broker address on a
+flashed board is an edit in place rather than a rebuild. It was in the IFS, and
+read-only, which is the wrong place for the one file holding an address that
+moves.
 
 ## wifi-service
 

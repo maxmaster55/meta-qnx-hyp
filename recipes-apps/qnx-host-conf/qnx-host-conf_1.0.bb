@@ -139,8 +139,19 @@ do_install() {
 # perms=0600 on wpa_supplicant.conf: it holds the network PSK. That is thin
 # protection on an image anyone holding the SD card can read, but there is no
 # reason to make it worse than the file it came from.
+# Only the two display files. They are used BEFORE the data partition exists:
+# the boot script runs /scripts/host-graphics-start.sh, which ends in a
+# `waitfor /dev/screen`, several lines above .storage-server.sh -- so both have
+# to be in the IFS and there is nothing to decide.
+#
+# wpa_supplicant.conf is NOT here. It is placed on the data partition by
+# qnx-host-data.build.in, because .wifi-start.sh reads it after that mount and
+# it is the file on this board most likely to need changing without a rebuild:
+# moving the board to a different network is a different PSK. On the data
+# partition that is an edit in place; in the IFS it was a full image rebuild and
+# a reflash to change one line. It keeps perms=0600 there for the same thin
+# reason it had them here -- it holds the PSK.
 QNX_IFS_EXTRA_ENTRIES = "\
 /lib/graphics/drm-rpi5/graphics-host-rpi5.conf=@QNX_IFS_ROOT@/host-conf/graphics-host-rpi5.conf\n\
-[perms=0755] /scripts/host-graphics-start.sh=@QNX_IFS_ROOT@/host-conf/host-graphics-start.sh\n\
-[perms=0600] /etc/wpa_supplicant.conf=@QNX_IFS_ROOT@/host-conf/wpa_supplicant.conf\
+[perms=0755] /scripts/host-graphics-start.sh=@QNX_IFS_ROOT@/host-conf/host-graphics-start.sh\
 "

@@ -87,12 +87,23 @@ do_install() {
 	install -m 0644 ${S}/motor_shm.h  ${D}${QNX_STAGE_INCLUDEDIR}/
 }
 
-# The binary is harvested automatically -- it is in the processor tree's
-# usr/bin, which mkifs searches. config.json is not: /etc/motor is on no search
-# path, so it is staged outside that tree and placed by an explicit record.
-QNX_IFS_EXTRA_ENTRIES = "\
-/etc/motor/config.json=@QNX_IFS_ROOT@/motor-data-producer/config.json\
-"
+# No QNX_IFS_EXTRA_ENTRIES, and its absence is the point rather than an
+# oversight. This recipe is in no image's QNX_IFS_INSTALL any more -- the host
+# takes it through qnx-host-data's QNX_ROOTFS_INSTALL and the guest through
+# qnx-guest-rootfs's -- and qnx-ifs.bbclass reads a recipe's dropin only for
+# names that appear in the consuming image's QNX_IFS_INSTALL. An entry left here
+# would therefore never be read by anything, while looking exactly like the
+# thing that places config.json.
+#
+# Both writable partitions name /etc/motor/config.json as an explicit record
+# instead. That path is not a preference: the source says
+#
+#     #define DEFAULT_CONFIG_PATH "/etc/motor/config.json"
+#
+# so it is what makes `motor_data_producer` work with no arguments. The binary
+# is picked up from the processor tree's usr/bin by each partition's /usr
+# mapping; config.json is staged outside that tree, which is why it needs a
+# record at all.
 
 # Not started from either boot script. It wants the SPI bus, and which of the
 # host and the guest owns SPI0 is a runtime decision -- the RP1's SPI and GPIO

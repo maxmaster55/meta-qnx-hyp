@@ -17,17 +17,74 @@
 [type=dir] /guests
 
 ################################################################################
-## hms itself, not just its writable state -- the whole binary.
+## The applications themselves, not just their writable state.
 ##
 ## Everything else this template names is here because it has to be written at
-## runtime or survive a reboot; hms is here because it changes constantly
-## during development and an IFS does not. .hms-start.sh (in the IFS, staged by
-## qnx-host-image) execs /bin/hms after this partition is already mounted over
-## /, so this entry is what it finds -- and updating hms from here on is
-## `scp build/hms root@host:/bin/hms`, no image rebuild, no reflash.
+## runtime or survive a reboot; these are here because they change constantly
+## during development and an IFS does not. Each was in qnx-host-image's
+## QNX_IFS_INSTALL, where changing one binary meant rebuilding and reflashing
+## the whole read-only boot image.
+##
+## Nothing about the paths changes by moving them. .storage-server.sh mounts
+## this partition on / as a UNION, so /bin and /usr/bin here merge with the
+## IFS's and every caller resolves the same name it always did --
+## .hms-start.sh still execs /bin/hms, the boot script still runs
+## `wifi_service &` off PATH. Both run after that mount, which is what makes
+## this safe; anything that runs before it has to stay in the IFS.
+##
+## Updating one from here on is `scp build/hms root@host:/bin/hms`, no image
+## rebuild, no reflash.
 ################################################################################
 [type=dir] /bin
 [perms=0755] /bin/hms = @QNX_ROOTFS_SYSROOT@/hms/hms
+
+## wifi_service. Staged in the processor tree's bin because that is where the
+## IFS harvest pass used to pick it up; named by its stage path here.
+[perms=0755] /bin/wifi_service = @QNX_ROOTFS_SYSROOT@/@QNX_PROCESSOR@/bin/wifi_service
+
+## motor_data_producer, and the config.json it reads with no arguments --
+## DEFAULT_CONFIG_PATH in its source is /etc/motor/config.json, so the path is
+## the application's, not a preference. Not started at boot on this side: the
+## RP1's SPI0 window is passed through to guest-1, and only one of the two may
+## drive it.
+[type=dir] /usr
+[type=dir] /usr/bin
+[perms=0755] /usr/bin/motor_data_producer = @QNX_ROOTFS_SYSROOT@/@QNX_PROCESSOR@/usr/bin/motor_data_producer
+[type=dir] /etc/motor
+[perms=0644] /etc/motor/config.json = @QNX_ROOTFS_SYSROOT@/motor-data-producer/config.json
+
+################################################################################
+## The application CONFIGURATION, for the same reason as the binaries above.
+##
+## A binary that can be replaced with an scp is not much use if the file telling
+## it which broker, which network or which guests still costs a rebuild and a
+## reflash. Every one of these is read after .storage-server.sh has mounted this
+## partition over /, so each resolves to the copy here.
+################################################################################
+
+## hms's broker address, key paths and OTA server. Read by hms itself, which
+## .hms-start.sh execs from /bin/hms above.
+[perms=0644] /etc/hms.conf = @QNX_ROOTFS_SYSROOT@/hms/hms.conf
+
+## The wifi credentials. .wifi-start.sh hands this to wpa_supplicant, and it is
+## the file most likely to need changing on a board that is already flashed --
+## moving to a different network is a different PSK.
+##
+## 0600 because it holds that PSK. Thin protection on a card anyone can read,
+## but no reason to make it worse than the file it came from. Note this is a
+## different file from the two in /etc/wifi below: this one is the network the
+## board joins normally, those two belong to wifi_service's phone-provisioning
+## path.
+[perms=0600] /etc/wpa_supplicant.conf = @QNX_ROOTFS_SYSROOT@/host-conf/wpa_supplicant.conf
+
+## Guest launch policy. /scripts already exists above -- board_startup.sh is
+## written into it at the end of this file.
+##
+## The guest-launch recipe is still in qnx-host-image's QNX_IFS_INSTALL even
+## though this file is not in the IFS: QNX_IFS_STARTUP_CMD emits the boot
+## script's `/scripts/start-guests.sh` line only for recipes that image
+## installs, and that line runs after this partition is mounted.
+[perms=0755] /scripts/start-guests.sh = @QNX_ROOTFS_SYSROOT@/guest-launch/start-guests.sh
 
 # wifi-service's two wpa_supplicant configurations, and the directory it
 # rewrites them in.
